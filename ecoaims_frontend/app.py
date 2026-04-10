@@ -1,7 +1,9 @@
 import dash
+import base64
 import logging
 import os
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 import json
@@ -33,6 +35,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
+_AUTH_ATTEMPTS_LOCK = threading.Lock()
+_AUTH_FAILED_ATTEMPTS_BY_IP: dict[str, list[float]] = {}
 
 
 def _as_bool(v: str | None, default: bool) -> bool:
@@ -74,7 +78,7 @@ def _auth_enabled() -> bool:
 
 def _auth_allowed_paths(path: str) -> bool:
     p = str(path or "")
-    if p in {"/login", "/captcha.svg", "/logout"}:
+    if p in {"/login", "/captcha.svg", "/logout", "/api/auth/captcha", "/api/auth/login"}:
         return True
     if p.startswith("/manual/"):
         return True
@@ -104,6 +108,61 @@ def _validate_csrf() -> bool:
     if not isinstance(expected, str) or not expected:
         return False
     return secrets.compare_digest(str(expected), str(got))
+
+def _captcha_ttl_s() -> int:
+    try:
+        return max(30, int(os.getenv("ECOAIMS_CAPTCHA_TTL_S", "300") or "300"))
+    except Exception:
+        return 300
+
+def _rate_limit_window_s() -> int:
+    try:
+        return max(60, int(os.getenv("ECOAIMS_AUTH_RATE_LIMIT_WINDOW_S", "900") or "900"))
+    except Exception:
+        return 900
+
+def _rate_limit_max_attempts() -> int:
+    try:
+        return max(1, int(os.getenv("ECOAIMS_AUTH_RATE_LIMIT_MAX", "5") or "5"))
+    except Exception:
+        return 5
+
+def _rate_limit_check(ip: str) -> tuple[bool, int]:
+    now = time.time()
+    win = float(_rate_limit_window_s())
+    maxn = _rate_limit_max_attempts()
+    with _AUTH_ATTEMPTS_LOCK:
+        arr = _AUTH_FAILED_ATTEMPTS_BY_IP.get(ip) or []
+        arr = [t for t in arr if (now - t) <= win]
+        _AUTH_FAILED_ATTEMPTS_BY_IP[ip] = arr
+        if len(arr) >= maxn:
+            oldest = min(arr) if arr else now
+            retry = int(max(1.0, win - (now - oldest)))
+            return False, retry
+        return True, 0
+
+def _rate_limit_record_failed(ip: str) -> None:
+    now = time.time()
+    win = float(_rate_limit_window_s())
+    with _AUTH_ATTEMPTS_LOCK:
+        arr = _AUTH_FAILED_ATTEMPTS_BY_IP.get(ip) or []
+        arr = [t for t in arr if (now - t) <= win]
+        arr.append(now)
+        _AUTH_FAILED_ATTEMPTS_BY_IP[ip] = arr
+
+def _rate_limit_clear(ip: str) -> None:
+    with _AUTH_ATTEMPTS_LOCK:
+        _AUTH_FAILED_ATTEMPTS_BY_IP.pop(ip, None)
+
+def _safe_next_url(raw: str) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return "/"
+    if s.startswith("//"):
+        return "/"
+    if s.startswith("/") and not s.startswith("/\\"):
+        return s
+    return "/"
 
 def _new_captcha_text() -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -308,7 +367,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
         <div class="row">
           <label>Captcha</label>
           <div class="captcha">
-            <img id="captcha-img" alt="captcha" src="/captcha.svg?ts={int(time.time())}"/>
+            <img id="captcha-img" alt="captcha" src=""/>
             <button id="btn-refresh" type="button" class="btn-secondary">Refresh</button>
           </div>
           <div class="row" style="margin-top:10px;">
@@ -329,9 +388,27 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
-    const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content') || '';
-    const refreshCaptcha = () => {{
-      $('captcha-img').src = '/captcha.svg?ts=' + Date.now();
+    let csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content') || '';
+    const applyCaptcha = (payload) => {{
+      if (!payload) return;
+      if (payload.csrf_token) {{
+        csrf = String(payload.csrf_token);
+        document.querySelector('meta[name="csrf-token"]').setAttribute('content', csrf);
+        const h = document.querySelector('input[name="csrf_token"]');
+        if (h) h.value = csrf;
+      }}
+      if (payload.captcha_image) {{
+        $('captcha-img').src = String(payload.captcha_image);
+      }}
+    }};
+    const refreshCaptcha = async () => {{
+      try {{
+        const resp = await fetch('/api/auth/captcha', {{ method: 'GET', credentials: 'same-origin' }});
+        const data = await resp.json().catch(() => ({{}}));
+        applyCaptcha(data);
+      }} catch (e) {{
+        $('captcha-img').src = '/captcha.svg?ts=' + Date.now();
+      }}
     }};
     $('btn-refresh').addEventListener('click', () => {{
       refreshCaptcha();
@@ -388,7 +465,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
           captcha: $('captcha').value.trim(),
           next: (new URLSearchParams(new FormData($('login-form')))).get('next') || '/'
         }};
-        const resp = await fetch('/login', {{
+        const resp = await fetch('/api/auth/login', {{
           method: 'POST',
           headers: {{
             'Content-Type': 'application/json',
@@ -417,6 +494,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
         btn.textContent = oldText;
       }}
     }});
+    refreshCaptcha();
   </script>
 </body>
 </html>"""
@@ -536,8 +614,33 @@ def captcha_svg():
         return Response(status=404)
     txt = _new_captcha_text()
     session["ecoaims_captcha"] = txt
+    session["ecoaims_captcha_expires_at"] = int(time.time()) + _captcha_ttl_s()
     svg = _captcha_svg(txt)
     resp = Response(svg, status=200, mimetype="image/svg+xml")
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
+@server.get("/api/auth/captcha")
+def api_auth_captcha():
+    if not _auth_enabled():
+        return server.response_class(
+            response=json.dumps({"ok": False, "error": "auth_disabled"}, sort_keys=True, separators=(",", ":")),
+            status=404,
+            mimetype="application/json",
+        )
+    txt = _new_captcha_text()
+    session["ecoaims_captcha"] = txt
+    session["ecoaims_captcha_expires_at"] = int(time.time()) + _captcha_ttl_s()
+    csrf = secrets.token_urlsafe(24)
+    session["ecoaims_csrf"] = csrf
+    svg = _captcha_svg(txt)
+    data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    payload = {"csrf_token": csrf, "captcha_image": data_url, "ttl_s": _captcha_ttl_s()}
+    resp = server.response_class(
+        response=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        status=200,
+        mimetype="application/json",
+    )
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
@@ -545,13 +648,11 @@ def captcha_svg():
 def login_page():
     if not _auth_enabled():
         return redirect("/", code=302)
-    csrf = _csrf_token()
     post_redirect = os.getenv("ECOAIMS_POST_LOGIN_REDIRECT") or "/"
-    html = _render_login_html(csrf=csrf, post_login_redirect=post_redirect)
+    html = _render_login_html(csrf="", post_login_redirect=post_redirect)
     return Response(html, status=200, mimetype="text/html; charset=utf-8")
 
-@server.post("/login")
-def login_submit():
+def _handle_login_submit():
     if not _auth_enabled():
         return server.response_class(
             response=json.dumps({"ok": False, "error": "auth_disabled"}, sort_keys=True, separators=(",", ":")),
@@ -575,8 +676,8 @@ def login_submit():
         body = dict(request.form or {})
     username = str(body.get("username") or "").strip()
     password = str(body.get("password") or "")
-    captcha = str(body.get("captcha") or "").strip().upper()
-    next_url = str(body.get("next") or "").strip() or (os.getenv("ECOAIMS_POST_LOGIN_REDIRECT") or "/")
+    captcha = str(body.get("captcha") or "").strip()
+    next_url = _safe_next_url(str(body.get("next") or "").strip() or (os.getenv("ECOAIMS_POST_LOGIN_REDIRECT") or "/"))
 
     if not username or not password or not captcha:
         return server.response_class(
@@ -585,15 +686,40 @@ def login_submit():
             mimetype="application/json",
         )
 
+    ip = _client_ip()
+    ok_rate, retry_after = _rate_limit_check(ip)
+    if not ok_rate:
+        resp = server.response_class(
+            response=json.dumps({"ok": False, "error": "too_many_attempts"}, sort_keys=True, separators=(",", ":")),
+            status=429,
+            mimetype="application/json",
+        )
+        resp.headers["Retry-After"] = str(retry_after)
+        return resp
+
     expected_captcha = session.get("ecoaims_captcha")
-    if not isinstance(expected_captcha, str) or not expected_captcha:
+    exp_at = session.get("ecoaims_captcha_expires_at")
+    try:
+        exp_at_i = int(exp_at)
+    except Exception:
+        exp_at_i = 0
+    if not isinstance(expected_captcha, str) or not expected_captcha or exp_at_i <= 0:
         return server.response_class(
             response=json.dumps({"ok": False, "error": "captcha_missing"}, sort_keys=True, separators=(",", ":")),
             status=400,
             mimetype="application/json",
         )
-    captcha_ok = secrets.compare_digest(str(expected_captcha).upper(), captcha)
-    session["ecoaims_captcha"] = _new_captcha_text()
+    if int(time.time()) > exp_at_i:
+        session["ecoaims_captcha"] = ""
+        session["ecoaims_captcha_expires_at"] = 0
+        _rate_limit_record_failed(ip)
+        logger.info("auth_attempt ok=%s ip=%s ts=%s reason=%s", False, ip, _now_iso(), "captcha_expired")
+        return server.response_class(
+            response=json.dumps({"ok": False, "error": "login_failed"}, sort_keys=True, separators=(",", ":")),
+            status=401,
+            mimetype="application/json",
+        )
+    captcha_ok = secrets.compare_digest(str(expected_captcha), captcha)
 
     admin_user = os.getenv("ECOAIMS_ADMIN_USERNAME") or ""
     admin_hash = os.getenv("ECOAIMS_ADMIN_PASSWORD_HASH") or ""
@@ -621,14 +747,18 @@ def login_submit():
             pass_ok = False
 
     ok = bool(captcha_ok and user_ok and pass_ok)
-    logger.info("auth_attempt ok=%s ip=%s ts=%s", ok, _client_ip(), _now_iso())
+    logger.info("auth_attempt ok=%s ip=%s ts=%s", ok, ip, _now_iso())
     if not ok:
+        _rate_limit_record_failed(ip)
+        session["ecoaims_captcha"] = ""
+        session["ecoaims_captcha_expires_at"] = 0
         return server.response_class(
             response=json.dumps({"ok": False, "error": "login_failed"}, sort_keys=True, separators=(",", ":")),
             status=401,
             mimetype="application/json",
         )
 
+    _rate_limit_clear(ip)
     session["ecoaims_admin_auth"] = True
     session["ecoaims_admin_auth_at"] = int(time.time())
     session.permanent = True
@@ -637,6 +767,14 @@ def login_submit():
         status=200,
         mimetype="application/json",
     )
+
+@server.post("/api/auth/login")
+def api_auth_login():
+    return _handle_login_submit()
+
+@server.post("/login")
+def login_submit():
+    return _handle_login_submit()
 
 @server.get("/logout")
 def logout():
