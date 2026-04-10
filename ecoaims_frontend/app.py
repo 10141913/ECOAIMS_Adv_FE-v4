@@ -403,7 +403,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
     }};
     const refreshCaptcha = async () => {{
       try {{
-        const resp = await fetch('/api/auth/captcha', {{ method: 'GET', credentials: 'same-origin' }});
+        const resp = await fetch('/api/auth/captcha', {{ method: 'GET', credentials: 'include' }});
         const data = await resp.json().catch(() => ({{}}));
         applyCaptcha(data);
       }} catch (e) {{
@@ -472,7 +472,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
             'X-CSRF-Token': csrf
           }},
           body: JSON.stringify(payload),
-          credentials: 'same-origin'
+          credentials: 'include'
         }});
         const data = await resp.json().catch(() => ({{}}));
         if (resp.status === 200 && data && data.ok) {{
