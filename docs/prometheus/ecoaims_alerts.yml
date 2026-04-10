@@ -1,0 +1,56 @@
+groups:
+  - name: ecoaims-frontend
+    interval: 30s
+    rules:
+      - alert: ECOAIMSFrontendMetricsScrapeFailure
+        expr: up{job="ecoaims-frontend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ecoaims-frontend
+        annotations:
+          summary: "ECOAIMS FE /metrics tidak bisa di-scrape"
+          description: "Prometheus gagal scrape /metrics untuk job ecoaims-frontend selama >2 menit."
+
+      - alert: ECOAIMSOptimizationCacheHitRateLow
+        expr: |
+          (
+            rate(ecoaims_fe_optimization_cache_hits_total[10m])
+            /
+            (rate(ecoaims_fe_optimization_cache_hits_total[10m]) + rate(ecoaims_fe_optimization_cache_misses_total[10m]) + 1e-9)
+          ) < 0.20
+          and
+          rate(ecoaims_fe_optimization_requests_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: ecoaims-frontend
+        annotations:
+          summary: "ECOAIMS FE cache hit-rate turun"
+          description: "Cache hit-rate Optimization <20% saat ada traffic (requests rate >0.05/s) selama >10 menit."
+
+      - alert: ECOAIMSOptimizationLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(ecoaims_fe_optimization_latency_ms_bucket[10m])) by (le)
+          ) > 1200
+          and
+          rate(ecoaims_fe_optimization_requests_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: ecoaims-frontend
+        annotations:
+          summary: "ECOAIMS FE Optimization p95 latency tinggi"
+          description: "p95 latency Optimization >1200ms (10m window) saat ada traffic (requests rate >0.05/s) selama >10 menit."
+
+      - alert: ECOAIMSOptimizationCircuitBreakerOpen
+        expr: increase(ecoaims_fe_optimization_cb_open_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: ecoaims-frontend
+        annotations:
+          summary: "ECOAIMS FE circuit breaker membuka (Optimization)"
+          description: "Ada rejection karena circuit breaker open dalam 5 menit terakhir."

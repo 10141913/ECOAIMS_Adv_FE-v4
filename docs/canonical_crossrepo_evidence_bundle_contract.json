@@ -1,0 +1,88 @@
+{
+  "artifact_contract_id": "canonical_crossrepo_evidence_bundle_contract",
+  "artifact_contract_version": "canonical_crossrepo_evidence_bundle_v1",
+  "expected_constants": {
+    "evidence_type": "canonical_crossrepo_evidence_bundle",
+    "evidence_version": "canonical_crossrepo_evidence_bundle_v1",
+    "evidence_subject": "canonical_crossrepo_verification_bundle",
+    "artifact_hash_algorithm": "sha256",
+    "artifact_serialization": "json_sort_keys_compact_without_artifact_sha256"
+  },
+  "subtree_required": {
+    "canonical_crossrepo_proof": [
+      "path",
+      "canonical_filename",
+      "proof_type",
+      "artifact_sha256",
+      "artifact_contract_id",
+      "artifact_contract_version",
+      "artifact_contract_hash",
+      "full_crossrepo_proof_ok",
+      "runtime_only_crossrepo_ok",
+      "crossrepo_canonical_proof_ok"
+    ],
+    "canonical_crossrepo_proof_verification": [
+      "path",
+      "canonical_filename",
+      "verification_type",
+      "summary_sha256",
+      "summary_contract_id",
+      "summary_contract_version",
+      "summary_contract_hash",
+      "final_ok"
+    ],
+    "backend_evidence_index": [
+      "path",
+      "canonical_filename",
+      "artifact_sha256",
+      "artifact_contract_id",
+      "artifact_contract_version",
+      "artifact_contract_hash",
+      "final_bundle_ok"
+    ],
+    "backend_evidence_index_verification": [
+      "path",
+      "canonical_filename",
+      "verification_type",
+      "summary_sha256",
+      "summary_contract_id",
+      "summary_contract_version",
+      "summary_contract_hash",
+      "final_ok"
+    ],
+    "chain_consistency": [
+      "proof_exists",
+      "proof_verification_exists",
+      "backend_evidence_index_exists",
+      "backend_evidence_index_verification_exists",
+      "proof_contract_ok",
+      "proof_verification_ok",
+      "backend_evidence_index_contract_ok",
+      "backend_evidence_index_verification_ok",
+      "backend_identity_match",
+      "final_bundle_ok",
+      "reasons"
+    ]
+  },
+  "required_fields": [
+    "evidence_type",
+    "evidence_version",
+    "generated_at",
+    "evidence_subject",
+    "artifact_contract_id",
+    "artifact_contract_version",
+    "artifact_contract_hash",
+    "artifact_hash_algorithm",
+    "artifact_serialization",
+    "artifact_sha256",
+    "canonical_crossrepo_proof",
+    "canonical_crossrepo_proof_verification",
+    "backend_evidence_index",
+    "backend_evidence_index_verification",
+    "frontend_identity",
+    "backend_identity",
+    "frontend_identity_fingerprint",
+    "backend_identity_fingerprint",
+    "chain_consistency"
+  ]
+}

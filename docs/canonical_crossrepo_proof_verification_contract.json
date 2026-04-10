@@ -1,0 +1,33 @@
+{
+  "summary_contract_id": "canonical_crossrepo_proof_verification_contract",
+  "summary_contract_version": "canonical_crossrepo_proof_verification_v1",
+  "required_fields": [
+    "verification_type",
+    "verification_version",
+    "verified_at",
+    "verified_path",
+    "verified_artifact_sha256",
+    "artifact_contract_id",
+    "artifact_contract_version",
+    "artifact_contract_hash",
+    "proof_chain_ok",
+    "identity_ok",
+    "contract_ok",
+    "hash_ok",
+    "chain_ok",
+    "runtime_ok",
+    "verdict_ok",
+    "final_ok",
+    "reasons",
+    "verifier_script",
+    "summary_contract_id",
+    "summary_contract_version",
+    "summary_contract_hash",
+    "summary_subject",
+    "summary_canonical_filename",
+    "verified_artifact_canonical_filename",
+    "summary_hash_algorithm",
+    "summary_serialization",
+    "summary_sha256"
+  ]
+}

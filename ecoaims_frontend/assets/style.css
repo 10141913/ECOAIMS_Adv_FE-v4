@@ -1,0 +1,342 @@
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #ecf0f1;
+    overflow-x: hidden; /* Prevent horizontal scroll on body */
+}
+
+/* Gauge Container - FORCE SINGLE ROW */
+.gauge-container {
+    display: flex;
+    flex-direction: row; /* Explicitly row */
+    flex-wrap: nowrap;   /* Prevent wrapping */
+    justify-content: space-between; /* Distribute space evenly */
+    align-items: stretch; /* Stretch cards to equal height */
+    gap: 10px; /* Small gap between cards */
+    padding: 10px;
+    margin-bottom: 20px;
+    width: 100%;
+    box-sizing: border-box; /* Include padding in width */
+}
+
+/* Gauge Card - Responsive Sizing */
+.gauge-card {
+    background-color: white;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+    border-radius: 5px;
+    padding: 10px 5px; /* Increased top/bottom padding */
+    transition: 0.3s;
+    
+    /* Flex grow/shrink to fit container - Updated for 5 items */
+    flex: 1 1 19%; /* Base width ~19% to fit 5 in 100% (with gaps) */
+    min-width: 0; /* Allow shrinking below content size if needed */
+    max-width: 20%; /* Ensure no card takes more than 1/5 */
+    
+    /* Ensure content inside doesn't overflow */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start; /* Align to top */
+    align-items: center;
+    overflow: hidden;
+    position: relative; /* For z-index context */
+}
+
+/* Gauge Title Styling */
+.gauge-title {
+    margin: 0 0 5px 0;
+    padding: 0 5px;
+    font-size: 16px; /* Base font size */
+    font-weight: bold;
+    color: #2c3e50;
+    text-align: center;
+    width: 100%;
+    white-space: nowrap; /* Prevent wrapping by default */
+    overflow: hidden;
+    text-overflow: ellipsis; /* Ellipsis if too long */
+    z-index: 10; /* Ensure above gauge */
+    
+    /* Responsive Font Scaling */
+    font-size: clamp(10px, 1.5vw, 18px); /* Min 10px, Pref 1.5vw, Max 18px */
+}
+
+/* Battery Visual Styling */
+.battery-body {
+    transition: all 0.3s ease;
+}
+
+/* Gauge Plotly: avoid height:auto — it collapses the plot container in many browsers */
+.gauge-card .js-plotly-plot {
+    width: 100% !important;
+    min-height: 165px !important;
+    height: 165px !important;
+    z-index: 1;
+    margin-top: -10px; /* Pull gauge up slightly closer to title */
+}
+
+/* Comparison Section Styling */
+.comparison-section {
+    margin-top: 0;
+    padding-top: 0;
+    width: 100%;
+}
+
+.section-title {
+    color: #2c3e50;
+    margin-top: 0;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.comparison-container {
+    display: flex;
+    flex-direction: row !important; /* Force row layout strictly */
+    flex-wrap: nowrap !important;   /* Prevent wrapping strictly */
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    overflow-x: auto; /* Allow horizontal scroll if needed */
+}
+
+.comparison-card {
+    flex: 1; /* Distribute space equally */
+    min-width: 200px; /* Ensure cards have minimum width */
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    padding: 15px;
+    display: flex;
+    flex-direction: row !important; /* Force content to be horizontal */
+    align-items: center;
+    justify-content: flex-start;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    white-space: nowrap;
+}
+
+.comparison-icon {
+    font-size: 24px;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.comparison-info {
+    text-align: left;
+    overflow: hidden;
+    flex: 1;
+}
+
+.comparison-label {
+    font-size: 14px;
+    color: #7f8c8d;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.comparison-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 2px;
+}
+
+.comparison-percentage {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .gauge-container {
+        gap: 5px;
+        padding: 5px;
+    }
+    
+    .gauge-card {
+        padding: 5px 2px;
+    }
+
+    .gauge-title {
+        white-space: normal;
+        line-height: 1.2;
+        min-height: 2.4em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* Keep comparison in one row on mobile too */
+    .comparison-container {
+        gap: 10px;
+        justify-content: flex-start; /* Align start to allow scrolling if overflow */
+    }
+    
+    .comparison-card {
+        padding: 10px;
+        min-width: 150px; /* Smaller min-width for mobile */
+        /* REMOVED flex-direction: column to keep internal layout horizontal */
+    }
+    
+    .comparison-icon {
+        margin-right: 10px;
+        font-size: 20px;
+    }
+    
+    .comparison-label {
+        font-size: 12px;
+    }
+    
+    .comparison-value {
+        font-size: 14px;
+    }
+    
+    .comparison-percentage {
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Extreme mobile: still single row but very compact */
+    .gauge-container {
+        gap: 2px;
+        padding: 2px;
+    }
+    
+    .gauge-title {
+        font-size: 10px; /* Force small font */
+        min-height: 2.4em;
+    }
+}
+
+.contract-error-container {
+    border: 1px solid #e0e0e0;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 14px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.contract-error-container .error-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid #e6e6e6;
+    background: #f7f9fa;
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+
+.contract-error-container h3,
+.contract-error-container h4,
+.contract-error-container h5 {
+    margin: 0 0 8px 0;
+}
+
+.contract-error-container p {
+    margin: 0 0 10px 0;
+    line-height: 1.35;
+}
+
+.contract-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.contract-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 520px;
+}
+
+.contract-table th,
+.contract-table td {
+    border: 1px solid #e6e6e6;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.badge.badge-danger {
+    display: inline-block;
+    background: #c0392b;
+    color: #ffffff;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 6px;
+}
+
+.badge.badge-ok {
+    display: inline-block;
+    background: #1e8449;
+    color: #ffffff;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 6px;
+}
+
+.badge.badge-warn {
+    display: inline-block;
+    background: #d35400;
+    color: #ffffff;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 6px;
+}
+
+.action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.technical-details {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 360px;
+    overflow: auto;
+    background: #f7f9fa;
+    border: 1px solid #e6e6e6;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+@media (max-width: 768px) {
+    .contract-error-container {
+        padding: 12px;
+    }
+    .contract-table {
+        min-width: 440px;
+    }
+    .action-buttons {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+@media (max-width: 420px) {
+    .contract-error-container {
+        padding: 10px;
+    }
+    .contract-error-container h3 {
+        font-size: 18px;
+        line-height: 1.2;
+    }
+    .contract-error-container h4 {
+        font-size: 15px;
+        line-height: 1.2;
+    }
+    .contract-error-container p {
+        font-size: 13px;
+    }
+    .technical-details {
+        max-height: 260px;
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "units": {
+        "energy": "kWh",
+        "power": "kW",
+        "emission": "ton CO2"
+    },
+    "capacities": {
+        "solar_pv": 100.0,
+        "wind_turbine": 100.0,
+        "battery": 100.0
+    },
+    "costs": {
+        "electricity_tariff": 1444.7,
+        "biofuel_price": 12000.0,
+        "carbon_price": 30000.0
+    },
+    "notifications": {
+        "low_battery": true,
+        "grid_outage": true,
+        "high_consumption": true
+    },
+    "live_pusher": {
+        "interval_s": 15
+    }
+}

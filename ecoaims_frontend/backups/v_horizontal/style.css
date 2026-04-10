@@ -1,0 +1,200 @@
+/* Comparison Section Styling - HORIZONTAL LAYOUT */
+.comparison-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #ecf0f1;
+    width: 100%;
+}
+
+.section-title {
+    color: #2c3e50;
+    margin-top: 0;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.comp-container-full {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 15px;
+    overflow-x: auto; /* Allow scroll on very small screens */
+    padding-bottom: 5px; /* Space for scrollbar */
+}
+
+.comp-card-horizontal {
+    flex: 1;
+    min-width: 220px; /* Ensure cards don't get too squeezed */
+    background-color: white;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border-left: 4px solid transparent; /* Colored border left */
+    transition: transform 0.2s;
+}
+
+.comp-card-horizontal:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+
+.comp-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.comp-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-right: 12px;
+}
+
+.comp-header-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.comp-name {
+    font-weight: bold;
+    color: #34495e;
+    font-size: 14px;
+}
+
+.comp-status-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    margin-top: 2px;
+    text-transform: uppercase;
+}
+
+.comp-main-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.comp-value {
+    font-size: 20px;
+    font-weight: 800;
+    color: #2c3e50;
+}
+
+.comp-pct {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.comp-trend {
+    font-size: 12px;
+    margin-bottom: 10px;
+    color: #7f8c8d;
+}
+
+.comp-sparkline {
+    height: 40px;
+    width: 100%;
+    margin-top: auto; /* Push to bottom */
+}
+
+/* Ensure no overlap on smaller screens (1366x768 target) */
+@media (max-width: 1024px) {
+    .comp-container-full {
+        flex-wrap: wrap; /* Wrap if screen is smaller than standard desktop */
+    }
+    .comp-card-horizontal {
+        flex: 1 1 45%; /* 2 per row */
+    }
+}
+
+@media (max-width: 600px) {
+    .comp-card-horizontal {
+        flex: 1 1 100%; /* 1 per row */
+    }
+}
+
+/* --- Existing Styles (Preserved) --- */
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #ecf0f1;
+    overflow-x: hidden;
+}
+
+/* Gauge Container */
+.gauge-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px;
+    margin-bottom: 20px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Gauge Card */
+.gauge-card {
+    background-color: white;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+    border-radius: 5px;
+    padding: 10px 5px;
+    transition: 0.3s;
+    flex: 1 1 24%;
+    min-width: 0;
+    max-width: 25%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.gauge-title {
+    margin: 0 0 5px 0;
+    padding: 0 5px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #2c3e50;
+    text-align: center;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 10;
+    font-size: clamp(10px, 1.5vw, 18px);
+}
+
+.gauge-card .js-plotly-plot {
+    width: 100% !important;
+    height: auto !important;
+    z-index: 1;
+    margin-top: -10px;
+}
+
+/* Responsive Gauge */
+@media (max-width: 768px) {
+    .gauge-container { gap: 5px; padding: 5px; }
+    .gauge-card { padding: 5px 2px; }
+    .gauge-title { white-space: normal; line-height: 1.2; min-height: 2.4em; display: flex; align-items: center; justify-content: center; }
+}
+@media (max-width: 480px) {
+    .gauge-container { gap: 2px; padding: 2px; }
+    .gauge-title { font-size: 10px; min-height: 2.4em; }
+}

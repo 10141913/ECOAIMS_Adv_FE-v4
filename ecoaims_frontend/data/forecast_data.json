@@ -1,0 +1,17 @@
+{
+  "forecast": [
+    {"time": "08:00", "consumption_kwh": 45.2, "co2_tons": 0.038},
+    {"time": "10:00", "consumption_kwh": 60.5, "co2_tons": 0.051},
+    {"time": "12:00", "consumption_kwh": 85.0, "co2_tons": 0.072},
+    {"time": "14:00", "consumption_kwh": 75.3, "co2_tons": 0.064},
+    {"time": "16:00", "consumption_kwh": 55.8, "co2_tons": 0.047},
+    {"time": "18:00", "consumption_kwh": 90.1, "co2_tons": 0.076},
+    {"time": "20:00", "consumption_kwh": 95.5, "co2_tons": 0.081}
+  ],
+  "sources": {
+    "solar_capacity": 100,
+    "wind_capacity": 150,
+    "battery_capacity": 200,
+    "grid_limit": 100
+  }
+}
