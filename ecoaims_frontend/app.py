@@ -497,7 +497,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
     const refreshCaptcha = async () => {{
       btnLogin.disabled = true;
       try {{
-        const resp = await fetch('/api/auth/captcha', {{ method: 'GET', credentials: 'include' }});
+        const resp = await fetch('api/auth/captcha', {{ method: 'GET', credentials: 'include' }});
         if (!resp.ok) {{
           throw new Error('captcha_http_' + resp.status);
         }}
@@ -574,7 +574,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
           captcha_token: captchaToken,
           next
         }};
-        const resp = await fetch('/api/auth/login', {{
+        const resp = await fetch('api/auth/login', {{
           method: 'POST',
           headers: {{
             'Content-Type': 'application/json',

@@ -88,6 +88,18 @@ class TestRuntimeEndpoint(unittest.TestCase):
             self.assertTrue(isinstance(js, dict))
             self.assertEqual(js.get("ok"), True)
 
+    def test_login_page_uses_relative_auth_endpoints(self):
+        import os
+        import ecoaims_frontend.app as app_mod
+
+        with patch.dict(os.environ, {"ECOAIMS_AUTH_ENABLED": "true"}, clear=False):
+            client = app_mod.server.test_client()
+            resp = client.get("/login")
+            self.assertEqual(resp.status_code, 200)
+            body = resp.get_data(as_text=True)
+            self.assertIn("fetch('api/auth/captcha'", body)
+            self.assertIn("fetch('api/auth/login'", body)
+
     def test_auth_login_rejects_missing_csrf(self):
         import os
         import ecoaims_frontend.app as app_mod
