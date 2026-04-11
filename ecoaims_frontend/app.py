@@ -339,9 +339,10 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
       align-items:center;
       flex-wrap: wrap;
       background: #d9dde2;
-      padding: 8px;
+      padding: 10px;
       border-radius: 12px;
       border: 1px solid #b7c0cc;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
     }}
     .captcha img {{
       width: 220px;
@@ -352,9 +353,9 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
       flex: none;
       display: block;
       max-width: 100%;
-      opacity: 0.01;
+      opacity: 0.8;
       filter: contrast(1.15) saturate(1.05) brightness(1.05);
-      box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.75) inset, 0 10px 24px rgba(0,0,0,0.18);
     }}
     .btnrow {{
       display:flex;
