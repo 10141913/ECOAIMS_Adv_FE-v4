@@ -23,6 +23,12 @@ class _Resp:
 
 
 class TestRuntimeEndpointContracts(unittest.TestCase):
+    def setUp(self):
+        try:
+            optimization_service._BREAKER.close()
+        except Exception:
+            pass
+
     @patch("ecoaims_frontend.services.data_service.requests.get")
     def test_energy_data_invalid_shape_marked_mismatch(self, mget):
         data_service._BACKEND_DOWN_UNTIL_TS = 0.0

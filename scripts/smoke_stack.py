@@ -87,6 +87,7 @@ def main() -> int:
     env.setdefault("HOST", "127.0.0.1")
     env.setdefault("BACKEND_PORT_BASE", "8008")
     env.setdefault("FRONTEND_PORT_BASE", "8050")
+    env.setdefault("ECOAIMS_AUTH_ENABLED", "false")
     env["ALLOW_LOCAL_SIMULATION_FALLBACK"] = "false"
     env["ECOAIMS_DEBUG_MODE"] = "false"
     env["ECOAIMS_REQUIRE_CANONICAL_POLICY"] = "true" if require_canonical else "false"

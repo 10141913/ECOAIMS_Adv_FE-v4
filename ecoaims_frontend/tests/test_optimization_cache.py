@@ -21,6 +21,10 @@ class TestOptimizationCache(unittest.TestCase):
     def setUp(self):
         optimization_service._OPT_CACHE.clear()
         optimization_service._INFLIGHT.clear()
+        try:
+            optimization_service._BREAKER.close()
+        except Exception:
+            pass
 
     @patch("ecoaims_frontend.services.optimization_service.validate_endpoint", return_value=(True, [], "test"))
     @patch("ecoaims_frontend.services.optimization_service._SESSION.post")

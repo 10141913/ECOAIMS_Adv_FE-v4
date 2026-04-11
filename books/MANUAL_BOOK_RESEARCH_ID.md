@@ -91,6 +91,33 @@ make clean-run
   ```
   Catatan: untuk backend eksternal (mis. 8009), gunakan `--mode external` sehingga label menjadi `com.ecoaims.backend.8009` dan FE tetap di 8050.
 
+### 2.2.1 Auth Gateway (Login + Captcha) untuk sesi eksperimen
+Jika FE Anda mengaktifkan gateway login, pastikan Anda mencatat konfigurasi auth pada setiap run agar hasil eksperimen dapat direplikasi.
+
+Mode yang disarankan untuk server adalah `proxy` (FE meneruskan auth ke BE):
+- FE endpoint (dipanggil browser):
+  - `GET /api/auth/captcha`
+  - `POST /api/auth/login`
+- BE endpoint (dipanggil FE):
+  - `GET /api/auth/captcha`
+  - `POST /api/auth/login`
+
+Env vars yang dicatat pada metadata run:
+- `ECOAIMS_AUTH_ENABLED`
+- `ECOAIMS_AUTH_MODE` (disarankan: `proxy`)
+- `ECOAIMS_AUTH_BACKEND_BASE_URL`
+- `ECOAIMS_FORCE_HTTPS` dan `ECOAIMS_SESSION_COOKIE_SECURE` (jika behind TLS)
+
+Smoke check cepat (tanpa browser):
+```bash
+curl -i http://127.0.0.1:8050/ | head -n 20
+curl -i http://127.0.0.1:8050/api/auth/captcha | head -n 40
+```
+
+Catatan untuk eksperimen berulang:
+- Jika UI terasa “langsung masuk” tanpa login, itu biasanya karena cookie session browser masih tersimpan. Gunakan incognito atau hapus cookie domain FE untuk memastikan run dimulai dari kondisi bersih.
+- Jika captcha tidak muncul, cek dulu respons `GET /api/auth/captcha` (404/503 biasanya berarti BE auth belum hidup atau base_url auth salah).
+
 ### 2.3 Verifikasi awal (wajib dicatat)
 Jalankan:
 

@@ -3,6 +3,7 @@
 Dokumen ini menjelaskan cara mengoperasikan ECO-AIMS Frontend (FE) secara berurutan, memahami fungsi setiap fitur, serta hal-hal penting untuk stabilitas, keamanan, dan troubleshooting. Panduan ditulis untuk operator/peneliti yang menjalankan FE terintegrasi dengan Backend (BE).
 
 Untuk kebutuhan penelitian (protokol eksperimen, template pencatatan, parameter sweep), gunakan juga: `books/MANUAL_BOOK_RESEARCH_ID.md`.
+Ringkasan operasional server FE ada di `README_FE.MD`. Untuk jejak keputusan teknis, lihat `books/DISCUSSION_HISTORY_ID.md`.
 
 ## Daftar Isi
 - 1. Gambaran Umum
@@ -558,6 +559,29 @@ Langkah pemulihan (disarankan):
    - `ECOAIMS_REQUIRED_MIN_FOR_COMPARISON=<required_min_for_comparison>`
 4) Jika seed tidak tersedia, biarkan backend berjalan sampai histori terkumpul ≥ minimal, lalu refresh FE.
 
+### 9.6 Login Gateway (Auth + Captcha)
+Gejala umum:
+- Akses `/` langsung masuk tanpa login.
+- Captcha di halaman `/login` kosong/tidak muncul.
+- Login gagal dengan error CSRF/captcha.
+
+Diagnosis cepat:
+```bash
+curl -i http://127.0.0.1:8050/ | head -n 20
+curl -i http://127.0.0.1:8050/api/auth/captcha | head -n 40
+```
+
+Interpretasi:
+- Jika belum login, `/` harus `302` ke `/login?next=/`.
+- `GET /api/auth/captcha` harus `200` dan biasanya mengirim `Set-Cookie` dari backend auth.
+
+Penyebab paling sering:
+- Browser masih menyimpan cookie session login (sehingga terlihat “tidak lewat login”). Gunakan incognito atau hapus cookie untuk `127.0.0.1:8050`.
+- Backend auth belum hidup / base URL auth salah (proxy mode) sehingga `GET /api/auth/captcha` menjadi 404/503.
+
+Catatan keamanan:
+- Untuk produksi, disarankan mode `proxy` sehingga browser cukup bicara ke FE dan tidak perlu CORS lintas port.
+
 ---
 
 ## 10. Catatan Keamanan & Hardening
@@ -566,6 +590,10 @@ Langkah pemulihan (disarankan):
 - Batasi CORS pada backend produksi (pada dev bisa longgar).
 - Jangan log token/secret ke console/log.
 - Jika mengaktifkan aksi apply/control (Precooling apply, BMS control), pastikan ada mekanisme otorisasi di backend.
+- Jika mengaktifkan gateway login:
+  - Jalankan FE di belakang HTTPS reverse proxy, set `ECOAIMS_FORCE_HTTPS=true` dan `ECOAIMS_SESSION_COOKIE_SECURE=true`.
+  - Set `ECOAIMS_SESSION_SECRET` agar session konsisten setelah restart.
+  - Jangan expose port backend auth ke publik; cukup FE yang publik, BE di jaringan internal.
 
 ---
 
@@ -596,3 +624,10 @@ Langkah pemulihan (disarankan):
 - `FE_HOST`, `FE_PORT`, `BACKEND`: override target untuk doctor/FE
 - Monitoring (development seed history):
   - `ECOAIMS_DEV_SEED_HISTORY`, `ECOAIMS_DEV_SEED_HISTORY_RECORDS`, `ECOAIMS_DEV_SEED_STREAM_ID`, `ECOAIMS_REQUIRED_MIN_FOR_COMPARISON`
+- Auth gateway (FE):
+  - `ECOAIMS_AUTH_ENABLED` (true/false)
+  - `ECOAIMS_AUTH_MODE` (disarankan: `proxy`)
+  - `ECOAIMS_AUTH_BACKEND_BASE_URL`
+  - `ECOAIMS_FORCE_HTTPS` (true/false)
+  - `ECOAIMS_SESSION_COOKIE_SECURE` (true/false)
+  - `ECOAIMS_SESSION_SECRET`

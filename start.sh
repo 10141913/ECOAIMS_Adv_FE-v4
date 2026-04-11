@@ -44,6 +44,11 @@ install_deps() {
 
 frontend_env() {
   export ECOAIMS_API_BASE_URL="${ECOAIMS_API_BASE_URL:-http://127.0.0.1:8008}"
+  export ECOAIMS_AUTH_ENABLED="${ECOAIMS_AUTH_ENABLED:-true}"
+  export ECOAIMS_AUTH_MODE="${ECOAIMS_AUTH_MODE:-proxy}"
+  export ECOAIMS_AUTH_BACKEND_BASE_URL="${ECOAIMS_AUTH_BACKEND_BASE_URL:-$ECOAIMS_API_BASE_URL}"
+  export ECOAIMS_FORCE_HTTPS="${ECOAIMS_FORCE_HTTPS:-false}"
+  export ECOAIMS_SESSION_COOKIE_SECURE="${ECOAIMS_SESSION_COOKIE_SECURE:-false}"
   export ECOAIMS_FRONTEND_HOST="${ECOAIMS_FRONTEND_HOST:-}"
   export ECOAIMS_FRONTEND_PORT="${ECOAIMS_FRONTEND_PORT:-8050}"
   export ECOAIMS_DASH_DEBUG="${ECOAIMS_DASH_DEBUG:-false}"
@@ -136,6 +141,11 @@ Usage:
 
 Env:
   ECOAIMS_API_BASE_URL      default: http://127.0.0.1:8008
+  ECOAIMS_AUTH_ENABLED      default: true
+  ECOAIMS_AUTH_MODE         default: proxy
+  ECOAIMS_AUTH_BACKEND_BASE_URL default: same as ECOAIMS_API_BASE_URL
+  ECOAIMS_FORCE_HTTPS       default: false
+  ECOAIMS_SESSION_COOKIE_SECURE default: false
   ECOAIMS_FRONTEND_HOST     default: 127.0.0.1 (daemon akan override ke 0.0.0.0 jika tidak diset)
   ECOAIMS_FRONTEND_PORT     default: 8050
   ECOAIMS_DASH_DEBUG        default: false

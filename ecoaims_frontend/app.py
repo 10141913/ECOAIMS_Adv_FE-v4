@@ -10,6 +10,7 @@ import json
 import requests
 
 from flask import Response, redirect, request, session
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 
@@ -102,18 +103,78 @@ def _csrf_token() -> str:
     session["ecoaims_csrf"] = tok
     return tok
 
-def _validate_csrf() -> bool:
-    expected = session.get("ecoaims_csrf")
-    got = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token") or ""
-    if not isinstance(expected, str) or not expected:
+def _serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(server.secret_key, salt="ecoaims_auth_v1")
+
+def _csrf_from_request(body: dict) -> tuple[str, str]:
+    hdr = str(request.headers.get("X-CSRF-Token") or "").strip()
+    b = str((body or {}).get("csrf_token") or "").strip()
+    return hdr, b
+
+def _csrf_ok(body: dict, *, token_payload: dict | None) -> bool:
+    hdr, b = _csrf_from_request(body)
+    if not hdr or not b:
         return False
-    return secrets.compare_digest(str(expected), str(got))
+    if not secrets.compare_digest(hdr, b):
+        return False
+    sess_csrf = session.get("ecoaims_csrf")
+    if isinstance(sess_csrf, str) and sess_csrf:
+        return secrets.compare_digest(str(sess_csrf), hdr)
+    if isinstance(token_payload, dict):
+        tok_csrf = str(token_payload.get("csrf_token") or "").strip()
+        return bool(tok_csrf) and secrets.compare_digest(tok_csrf, hdr)
+    return False
 
 def _captcha_ttl_s() -> int:
     try:
         return max(30, int(os.getenv("ECOAIMS_CAPTCHA_TTL_S", "300") or "300"))
     except Exception:
         return 300
+
+def _auth_mode() -> str:
+    return str(os.getenv("ECOAIMS_AUTH_MODE") or "proxy").strip().lower()
+
+def _auth_backend_base_url() -> str:
+    v = os.getenv("ECOAIMS_AUTH_BACKEND_BASE_URL") or os.getenv("ECOAIMS_API_BASE_URL") or ""
+    return str(v).strip().rstrip("/")
+
+def _backend_cookie_header() -> str:
+    return str(request.headers.get("Cookie") or "").strip()
+
+def _backend_request(method: str, path: str, *, json_body: dict | None = None, headers: dict | None = None) -> requests.Response:
+    base = _auth_backend_base_url()
+    url = base + (path if path.startswith("/") else "/" + path)
+    hdrs = dict(headers or {})
+    cookie_hdr = _backend_cookie_header()
+    if cookie_hdr:
+        hdrs["Cookie"] = cookie_hdr
+    return requests.request(method.upper(), url, json=json_body, headers=hdrs, timeout=6.5, stream=True)
+
+def _extract_set_cookie_headers(resp: requests.Response) -> list[str]:
+    raw = getattr(resp, "raw", None)
+    hdrs = getattr(raw, "headers", None)
+    if hdrs is not None:
+        try:
+            vals = hdrs.get_all("Set-Cookie")  # type: ignore[attr-defined]
+            if isinstance(vals, list):
+                return [str(v) for v in vals if str(v).strip()]
+        except Exception:
+            pass
+    v = resp.headers.get("set-cookie")
+    if not v:
+        return []
+    return [str(v)]
+
+def _json_response(payload: dict, status: int, *, extra_headers: dict | None = None) -> Response:
+    resp = server.response_class(
+        response=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        status=status,
+        mimetype="application/json",
+    )
+    if isinstance(extra_headers, dict):
+        for k, vv in extra_headers.items():
+            resp.headers[str(k)] = str(vv)
+    return resp
 
 def _rate_limit_window_s() -> int:
     try:
@@ -276,14 +337,24 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
       display:flex;
       gap:10px;
       align-items:center;
+      flex-wrap: wrap;
+      background: #d9dde2;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid #b7c0cc;
     }}
     .captcha img {{
       width: 220px;
       height: 64px;
       border-radius: 10px;
       border: 1px solid var(--border);
-      background:#f7f9fb;
+      background:#fff;
       flex: none;
+      display: block;
+      max-width: 100%;
+      opacity: 0.01;
+      filter: contrast(1.15) saturate(1.05) brightness(1.05);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.28);
     }}
     .btnrow {{
       display:flex;
@@ -389,6 +460,21 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
   <script>
     const $ = (id) => document.getElementById(id);
     let csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content') || '';
+    let csrfSession = '';
+    let captchaToken = '';
+    const btnLogin = $('btn-login');
+    btnLogin.disabled = true;
+    const setCaptchaPlaceholder = (message) => {{
+      const msg = String(message || 'Captcha tidak tersedia');
+      const svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' width='220' height='64' viewBox='0 0 220 64'>" +
+        "<rect x='0' y='0' width='220' height='64' rx='10' fill='#f7f9fb' stroke='#cfd6df'/>" +
+        "<text x='110' y='30' text-anchor='middle' font-family='Arial, sans-serif' font-size='12' font-weight='700' fill='#7b241c'>Captcha error</text>" +
+        "<text x='110' y='48' text-anchor='middle' font-family='Arial, sans-serif' font-size='10' fill='#566573'>" +
+        msg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+        "</text></svg>";
+      $('captcha-img').src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+    }};
     const applyCaptcha = (payload) => {{
       if (!payload) return;
       if (payload.csrf_token) {{
@@ -397,17 +483,33 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
         const h = document.querySelector('input[name="csrf_token"]');
         if (h) h.value = csrf;
       }}
+      if (payload.csrf_session) {{
+        csrfSession = String(payload.csrf_session);
+      }}
+      if (payload.captcha_token) {{
+        captchaToken = String(payload.captcha_token);
+      }}
       if (payload.captcha_image) {{
         $('captcha-img').src = String(payload.captcha_image);
+        btnLogin.disabled = false;
       }}
     }};
     const refreshCaptcha = async () => {{
+      btnLogin.disabled = true;
       try {{
         const resp = await fetch('/api/auth/captcha', {{ method: 'GET', credentials: 'include' }});
+        if (!resp.ok) {{
+          throw new Error('captcha_http_' + resp.status);
+        }}
         const data = await resp.json().catch(() => ({{}}));
         applyCaptcha(data);
+        if (!($('captcha-img').src || '').trim()) {{
+          throw new Error('captcha_missing_image');
+        }}
+        setTopErr('');
       }} catch (e) {{
-        $('captcha-img').src = '/captcha.svg?ts=' + Date.now();
+        setTopErr('Captcha tidak tersedia. Pastikan FE terbaru dan backend auth aktif, lalu refresh halaman.');
+        setCaptchaPlaceholder('Refresh halaman');
       }}
     }};
     $('btn-refresh').addEventListener('click', () => {{
@@ -459,11 +561,18 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
       btn.textContent = 'Memproses...';
       $('status').textContent = 'Memvalidasi...';
       try {{
+        const username = ($('username').value || '').trim();
+        const password = ($('password').value || '');
+        const captcha = ($('captcha').value || '').trim();
+        const next = (new URLSearchParams(new FormData($('login-form')))).get('next') || '/';
         const payload = {{
-          username: $('username').value.trim(),
-          password: $('password').value,
-          captcha: $('captcha').value.trim(),
-          next: (new URLSearchParams(new FormData($('login-form')))).get('next') || '/'
+          username,
+          password,
+          captcha,
+          csrf_token: csrf,
+          csrf_session: csrfSession,
+          captcha_token: captchaToken,
+          next
         }};
         const resp = await fetch('/api/auth/login', {{
           method: 'POST',
@@ -475,7 +584,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
           credentials: 'include'
         }});
         const data = await resp.json().catch(() => ({{}}));
-        if (resp.status === 200 && data && data.ok) {{
+        if (resp.status === 200 && data && (data.ok || data.access_token)) {{
           $('status').textContent = 'OK. Mengalihkan...';
           window.location.href = data.redirect || '/';
           return;
@@ -623,24 +732,60 @@ def captcha_svg():
 @server.get("/api/auth/captcha")
 def api_auth_captcha():
     if not _auth_enabled():
-        return server.response_class(
-            response=json.dumps({"ok": False, "error": "auth_disabled"}, sort_keys=True, separators=(",", ":")),
-            status=404,
-            mimetype="application/json",
-        )
-    txt = _new_captcha_text()
-    session["ecoaims_captcha"] = txt
-    session["ecoaims_captcha_expires_at"] = int(time.time()) + _captcha_ttl_s()
-    csrf = secrets.token_urlsafe(24)
-    session["ecoaims_csrf"] = csrf
-    svg = _captcha_svg(txt)
-    data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
-    payload = {"csrf_token": csrf, "captcha_image": data_url, "ttl_s": _captcha_ttl_s()}
+        return _json_response({"ok": False, "error": "auth_disabled"}, 404)
+    if _auth_mode() != "proxy":
+        txt = _new_captcha_text()
+        ttl_s = _captcha_ttl_s()
+        now_i = int(time.time())
+        session["ecoaims_captcha"] = txt
+        session["ecoaims_captcha_expires_at"] = now_i + ttl_s
+        csrf = secrets.token_urlsafe(24)
+        session["ecoaims_csrf"] = csrf
+
+        token_payload = {"captcha": txt, "csrf_token": csrf, "issued_at": now_i, "ttl_s": ttl_s}
+        captcha_token = _serializer().dumps(token_payload)
+
+        svg = _captcha_svg(txt)
+        data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        payload = {
+            "csrf_token": csrf,
+            "captcha_image": data_url,
+            "ttl_s": ttl_s,
+            "captcha_token": captcha_token,
+            "csrf_session": captcha_token,
+        }
+        resp = _json_response(payload, 200)
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp
+
+    try:
+        be = _backend_request("GET", "/api/auth/captcha", json_body=None, headers=None)
+    except Exception:
+        return _json_response({"detail": "backend_unreachable"}, 503)
+    try:
+        data = be.json()
+    except Exception:
+        data = None
+    payload = data if isinstance(data, dict) else {}
+    if "captcha_image" not in payload:
+        b64 = payload.get("captcha_svg_base64")
+        if isinstance(b64, str) and b64.strip():
+            payload["captcha_image"] = "data:image/svg+xml;base64," + b64.strip()
+        else:
+            svg = payload.get("captcha_svg")
+            if isinstance(svg, str) and svg.strip():
+                payload["captcha_image"] = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
     resp = server.response_class(
         response=json.dumps(payload, sort_keys=True, separators=(",", ":")),
-        status=200,
+        status=int(be.status_code),
         mimetype="application/json",
     )
+    for sc in _extract_set_cookie_headers(be):
+        resp.headers.add("Set-Cookie", sc)
+    rid = be.headers.get("x-request-id")
+    if rid:
+        resp.headers["x-request-id"] = str(rid)
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
@@ -654,18 +799,7 @@ def login_page():
 
 def _handle_login_submit():
     if not _auth_enabled():
-        return server.response_class(
-            response=json.dumps({"ok": False, "error": "auth_disabled"}, sort_keys=True, separators=(",", ":")),
-            status=404,
-            mimetype="application/json",
-        )
-    if not _validate_csrf():
-        return server.response_class(
-            response=json.dumps({"ok": False, "error": "csrf_invalid"}, sort_keys=True, separators=(",", ":")),
-            status=403,
-            mimetype="application/json",
-        )
-
+        return _json_response({"ok": False, "error": "auth_disabled"}, 404)
     body = {}
     if request.is_json:
         try:
@@ -678,13 +812,62 @@ def _handle_login_submit():
     password = str(body.get("password") or "")
     captcha = str(body.get("captcha") or "").strip()
     next_url = _safe_next_url(str(body.get("next") or "").strip() or (os.getenv("ECOAIMS_POST_LOGIN_REDIRECT") or "/"))
+    csrf_session = str(body.get("csrf_session") or "").strip()
+    captcha_token = str(body.get("captcha_token") or "").strip()
 
     if not username or not password or not captcha:
-        return server.response_class(
-            response=json.dumps({"ok": False, "error": "validation_error"}, sort_keys=True, separators=(",", ":")),
-            status=400,
-            mimetype="application/json",
-        )
+        return _json_response({"detail": "invalid_payload"}, 400)
+
+    hdr_csrf, body_csrf = _csrf_from_request(body)
+    if not hdr_csrf or not body_csrf or (not secrets.compare_digest(hdr_csrf, body_csrf)):
+        return _json_response({"detail": "csrf_invalid"}, 403)
+
+    if _auth_mode() == "proxy":
+        payload = {
+            "username": username,
+            "password": password,
+            "captcha": captcha,
+            "csrf_token": body_csrf,
+        }
+        if csrf_session:
+            payload["csrf_session"] = csrf_session
+        if captcha_token:
+            payload["captcha_token"] = captcha_token
+
+        try:
+            be = _backend_request(
+                "POST",
+                "/api/auth/login",
+                json_body=payload,
+                headers={"X-CSRF-Token": hdr_csrf, "Content-Type": "application/json"},
+            )
+        except Exception:
+            return _json_response({"detail": "backend_unreachable"}, 503)
+
+        content = be.content or b"{}"
+        resp = Response(content, status=int(be.status_code), mimetype=str(be.headers.get("content-type") or "application/json"))
+        for sc in _extract_set_cookie_headers(be):
+            resp.headers.add("Set-Cookie", sc)
+        rid = be.headers.get("x-request-id")
+        if rid:
+            resp.headers["x-request-id"] = str(rid)
+        if int(be.status_code) == 200:
+            session["ecoaims_admin_auth"] = True
+            session["ecoaims_admin_auth_at"] = int(time.time())
+            session.permanent = True
+        return resp
+
+    token_payload = None
+    if captcha_token:
+        try:
+            token_payload = _serializer().loads(captcha_token, max_age=_captcha_ttl_s() + 15)
+        except (SignatureExpired, BadSignature):
+            token_payload = None
+        except Exception:
+            token_payload = None
+
+    if not _csrf_ok(body, token_payload=token_payload):
+        return _json_response({"detail": "csrf_invalid"}, 403)
 
     ip = _client_ip()
     ok_rate, retry_after = _rate_limit_check(ip)
@@ -703,23 +886,19 @@ def _handle_login_submit():
         exp_at_i = int(exp_at)
     except Exception:
         exp_at_i = 0
-    if not isinstance(expected_captcha, str) or not expected_captcha or exp_at_i <= 0:
+    now_i = int(time.time())
+    captcha_ok = False
+    if isinstance(expected_captcha, str) and expected_captcha and exp_at_i > 0 and now_i <= exp_at_i:
+        captcha_ok = secrets.compare_digest(str(expected_captcha), captcha)
+    elif isinstance(token_payload, dict) and csrf_session and secrets.compare_digest(csrf_session, captcha_token):
+        tok_c = str(token_payload.get("captcha") or "")
+        captcha_ok = bool(tok_c) and secrets.compare_digest(tok_c, captcha)
+    else:
         return server.response_class(
             response=json.dumps({"ok": False, "error": "captcha_missing"}, sort_keys=True, separators=(",", ":")),
             status=400,
             mimetype="application/json",
         )
-    if int(time.time()) > exp_at_i:
-        session["ecoaims_captcha"] = ""
-        session["ecoaims_captcha_expires_at"] = 0
-        _rate_limit_record_failed(ip)
-        logger.info("auth_attempt ok=%s ip=%s ts=%s reason=%s", False, ip, _now_iso(), "captcha_expired")
-        return server.response_class(
-            response=json.dumps({"ok": False, "error": "login_failed"}, sort_keys=True, separators=(",", ":")),
-            status=401,
-            mimetype="application/json",
-        )
-    captcha_ok = secrets.compare_digest(str(expected_captcha), captcha)
 
     admin_user = os.getenv("ECOAIMS_ADMIN_USERNAME") or ""
     admin_hash = os.getenv("ECOAIMS_ADMIN_PASSWORD_HASH") or ""

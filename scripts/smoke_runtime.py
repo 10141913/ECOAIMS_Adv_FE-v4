@@ -477,6 +477,7 @@ except RuntimeError:
     env2.pop("API_BASE_URL", None)
     env2["USE_REAL_DATA"] = "true"
     env2["ALLOW_LOCAL_SIMULATION_FALLBACK"] = "false"
+    env2["ECOAIMS_AUTH_ENABLED"] = "false"
     env2["ECOAIMS_FRONTEND_PORT"] = "8060"
     env2["ECOAIMS_FRONTEND_HOST"] = "127.0.0.1"
 
