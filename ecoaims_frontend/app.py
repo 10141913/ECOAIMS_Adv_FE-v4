@@ -353,7 +353,7 @@ def _render_login_html(*, csrf: str, post_login_redirect: str) -> str:
       flex: none;
       display: block;
       max-width: 100%;
-      opacity: 0.8;
+      opacity: 1;
       filter: contrast(1.15) saturate(1.05) brightness(1.05);
       box-shadow: 0 1px 0 rgba(255,255,255,0.75) inset, 0 10px 24px rgba(0,0,0,0.18);
     }}

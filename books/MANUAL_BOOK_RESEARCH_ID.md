@@ -537,3 +537,8 @@ Artefak ada di `output/verification/`.
   - Cek apakah backend benar-benar memakai input tersebut (bisa saja backend memakai data state tetap).
   - Cek apakah backend sedang “fallback/placeholder mode”.
 - Untuk banding antar-run, gunakan canonical lane jika memungkinkan.
+
+---
+
+## 8. Lampiran
+- Statistik kode BE: Python SLOC tanpa comment & docstring 25.491 (207 file .py).
