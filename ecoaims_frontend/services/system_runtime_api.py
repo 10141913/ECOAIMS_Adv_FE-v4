@@ -2,6 +2,16 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 from ecoaims_frontend.services.http_trace import trace_headers
 
+def _merge_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Merge trace headers with optional extra headers (e.g. JWT auth)."""
+    hdrs: Dict[str, str] = {}
+    th = trace_headers()
+    if th:
+        hdrs.update(th)
+    if extra:
+        hdrs.update(extra)
+    return hdrs
+
 def _format_http_error(path: str, e: requests.HTTPError) -> str:
     try:
         status = e.response.status_code
@@ -14,11 +24,11 @@ def _build_url(path: str, *, base_url: Optional[str]) -> str:
     base = (base_url or "").rstrip("/")
     return f"{base}{path}"
 
-def get_runtime_config(*, base_url: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_runtime_config(*, base_url: Optional[str], headers: Optional[Dict[str, str]] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     url = _build_url("/api/system/runtime-config", base_url=base_url)
     try:
-        th = trace_headers()
-        resp = requests.get(url, timeout=4.0, **({"headers": th} if th else {}))
+        hdrs = _merge_headers(headers)
+        resp = requests.get(url, timeout=4.0, headers=hdrs)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):
@@ -33,14 +43,14 @@ def get_runtime_config(*, base_url: Optional[str]) -> Tuple[Optional[Dict[str, A
     except ValueError:
         return None, "invalid_json"
 
-def post_live_energy_file(file_content_base64: str, filename: Optional[str], *, base_url: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_live_energy_file(file_content_base64: str, filename: Optional[str], *, base_url: Optional[str], headers: Optional[Dict[str, str]] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     url = _build_url("/api/system/runtime-config/live-energy-file", base_url=base_url)
     payload = {"file_content_base64": file_content_base64}
     if isinstance(filename, str) and filename.strip():
         payload["filename"] = filename.strip()
     try:
-        th = trace_headers()
-        resp = requests.post(url, json=payload, timeout=6.0, **({"headers": th} if th else {}))
+        hdrs = _merge_headers(headers)
+        resp = requests.post(url, json=payload, timeout=6.0, headers=hdrs)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):
@@ -55,12 +65,12 @@ def post_live_energy_file(file_content_base64: str, filename: Optional[str], *, 
     except ValueError:
         return None, "invalid_json"
 
-def post_live_energy_enabled(enabled: bool, *, base_url: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_live_energy_enabled(enabled: bool, *, base_url: Optional[str], headers: Optional[Dict[str, str]] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     url = _build_url("/api/system/runtime-config/live-energy-file", base_url=base_url)
     payload = {"enabled": bool(enabled)}
     try:
-        th = trace_headers()
-        resp = requests.post(url, json=payload, timeout=6.0, **({"headers": th} if th else {}))
+        hdrs = _merge_headers(headers)
+        resp = requests.post(url, json=payload, timeout=6.0, headers=hdrs)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):

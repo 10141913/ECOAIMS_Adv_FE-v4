@@ -45,6 +45,10 @@ API_BASE_URL = _getenv_nonempty("API_BASE_URL")
 # Canonical ECOAIMS API (FastAPI)
 ECOAIMS_API_BASE_URL = _getenv_nonempty("ECOAIMS_API_BASE_URL", "http://127.0.0.1:8008")
 
+# Public-facing backend URL for browser-downloadable links (e.g., Reports CSV)
+# Must be resolvable from the user's browser, not from inside Docker.
+ECOAIMS_API_PUBLIC_URL = _getenv_nonempty("ECOAIMS_API_PUBLIC_URL", "http://127.0.0.1:8008")
+
 # Legacy Precooling Engine Integration (compatibility only)
 PRECOOLING_API_BASE_URL = _getenv_nonempty("PRECOOLING_API_BASE_URL") or ECOAIMS_API_BASE_URL
 PRECOOLING_REFRESH_INTERVAL_MS = 10000

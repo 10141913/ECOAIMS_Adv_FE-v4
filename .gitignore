@@ -27,3 +27,17 @@ output/**
 .ruff_cache/
 
 *.log
+
+# Sensitive / temporary files
+.env
+.env.production
+captcha.json
+captcha_data.json
+cookies.txt
+*.log
+
+# Temporary files
+captcha.json
+captcha_data.json
+cookies.txt
+*.log

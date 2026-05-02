@@ -10,6 +10,7 @@ from ecoaims_frontend.services.base_url_service import effective_base_url
 from ecoaims_frontend.services.runtime_contract_mismatch import build_runtime_endpoint_contract_mismatch
 from ecoaims_frontend.ui.runtime_contract_banner import render_runtime_endpoint_contract_mismatch_banner
 from ecoaims_frontend.services import data_service, optimization_service, precooling_api, reports_api
+from ecoaims_frontend.utils import get_headers
 
 
 def _extract_runbook_md(payload: dict, *, prefer_home: bool) -> tuple[str | None, str | None]:
@@ -156,13 +157,14 @@ def _canonical_base_url_from_startup_info(info: dict) -> str | None:
     return None
 
 
-def compute_home_runbook(readiness: dict | None) -> tuple[str, str]:
+def compute_home_runbook(readiness: dict | None, token_data: dict | None = None) -> tuple[str, str]:
     r = readiness if isinstance(readiness, dict) else {}
     base = str(r.get("base_url") or (ECOAIMS_API_BASE_URL or "")).strip().rstrip("/")
+    headers = get_headers(token_data)
     override = str(os.getenv("ECOAIMS_HOME_RUNBOOK_URL") or "").strip()
     if override:
         try:
-            resp = requests.get(override, timeout=(1.5, 2.5))
+            resp = requests.get(override, timeout=(1.5, 2.5), headers=headers)
             if resp.status_code == 200:
                 if "application/json" in str(resp.headers.get("content-type") or "").lower():
                     js = resp.json()
@@ -180,7 +182,7 @@ def compute_home_runbook(readiness: dict | None) -> tuple[str, str]:
 
     if base:
         try:
-            info = requests.get(f"{base}/api/startup-info", timeout=(1.5, 2.5)).json()
+            info = requests.get(f"{base}/api/startup-info", timeout=(1.5, 2.5), headers=headers).json()
             if isinstance(info, dict):
                 md, src = _extract_runbook_md(info, prefer_home=True)
                 if md:
@@ -188,7 +190,7 @@ def compute_home_runbook(readiness: dict | None) -> tuple[str, str]:
                 canonical = _canonical_base_url_from_startup_info(info)
                 if canonical and canonical.rstrip("/") != base.rstrip("/"):
                     try:
-                        info2 = requests.get(f"{canonical}/api/startup-info", timeout=(1.5, 2.5)).json()
+                        info2 = requests.get(f"{canonical}/api/startup-info", timeout=(1.5, 2.5), headers=headers).json()
                         if isinstance(info2, dict):
                             md2, src2 = _extract_runbook_md(info2, prefer_home=True)
                             if md2:
@@ -202,9 +204,10 @@ def compute_home_runbook(readiness: dict | None) -> tuple[str, str]:
     return _fallback_md(), "Sumber panduan: frontend (fallback)"
 
 
-def compute_doctor_report(readiness: dict | None) -> tuple[str, str]:
+def compute_doctor_report(readiness: dict | None, token_data: dict | None = None) -> tuple[str, str]:
     r = readiness if isinstance(readiness, dict) else {}
     base_url = effective_base_url(r)
+    headers = get_headers(token_data)
     ts = int(time.time())
     url = f"{str(base_url).rstrip('/')}/diag/doctor" if base_url else ""
     report = {"ts": ts, "base_url": base_url, "endpoint": "/diag/doctor", "ok": False}
@@ -214,7 +217,7 @@ def compute_doctor_report(readiness: dict | None) -> tuple[str, str]:
         msg = "base_url tidak tersedia."
         return json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False), msg
     try:
-        resp = requests.get(url, timeout=(1.5, 2.5))
+        resp = requests.get(url, timeout=(1.5, 2.5), headers=headers)
         report["http_status"] = int(resp.status_code)
         if int(resp.status_code) == 200:
             payload = resp.json()
@@ -371,9 +374,10 @@ def register_home_callbacks(app):
     @app.callback(
         [Output("home-runbook-md", "children"), Output("home-runbook-source", "children")],
         [Input("backend-readiness-store", "data")],
+        [State("token-store", "data")],
     )
-    def update_home_runbook(readiness):
-        return compute_home_runbook(readiness)
+    def update_home_runbook(readiness, token_data):
+        return compute_home_runbook(readiness, token_data)
 
     @app.callback(
         [Output("home-contract-mismatch-summary", "children"), Output("settings-contract-mismatch-summary", "children"), Output("contract-mismatch-store", "data")],
@@ -484,11 +488,11 @@ def register_home_callbacks(app):
             Output("home-doctor-contract-change-banner", "style"),
         ],
         [Input("home-doctor-refresh-btn", "n_clicks")],
-        [State("backend-readiness-store", "data"), State("home-doctor-snapshot-store", "data")],
+        [State("backend-readiness-store", "data"), State("home-doctor-snapshot-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
-    def update_home_doctor_report(n_clicks, readiness, prev_snapshot):
-        content, msg = compute_doctor_report(readiness)
+    def update_home_doctor_report(n_clicks, readiness, prev_snapshot, token_data):
+        content, msg = compute_doctor_report(readiness, token_data)
         base = effective_base_url(readiness if isinstance(readiness, dict) else {})
         next_snapshot = {"ts": int(time.time()), "base_url": base, "contract_hashes": {}}
         try:
@@ -503,11 +507,11 @@ def register_home_callbacks(app):
     @app.callback(
         Output("home-doctor-download", "data"),
         [Input("home-doctor-download-btn", "n_clicks")],
-        [State("backend-readiness-store", "data")],
+        [State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
-    def download_home_doctor_report(n, readiness):
-        content, _ = compute_doctor_report(readiness)
+    def download_home_doctor_report(n, readiness, token_data):
+        content, _ = compute_doctor_report(readiness, token_data)
         r = readiness if isinstance(readiness, dict) else {}
         base_url = str(effective_base_url(r) or "")
         filename = _doctor_report_filename(base_url=base_url, ts=int(time.time()))

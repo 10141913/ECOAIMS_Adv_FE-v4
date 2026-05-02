@@ -99,14 +99,78 @@ def _build_initial_forecasting_figures():
 def create_forecasting_layout():
     """
     Creates the layout for the Forecasting Tab.
-    Includes graphs for energy consumption prediction and renewable energy production.
+    Includes graphs for energy consumption prediction and renewable energy production,
+    plus an LSTM/ML model selector for AI-powered forecasting.
+    Includes CSV upload for historical training data.
     """
     initial_cons_fig, initial_renew_fig, initial_acc_fig = _build_initial_forecasting_figures()
     return html.Div([
         # Header for this section
         html.H2("Forecasting Energi", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '30px'}),
 
-        # Controls Section
+        # --- LSTM / ML Model Control Panel ---
+        html.Div([
+            html.H3("AI Model Forecast", style={'color': '#34495e', 'marginBottom': '15px'}),
+
+            # ── CSV Upload Section ──────────────────────────────────────────
+            html.Div([
+                html.Label("Upload Data Historis (CSV):", style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+                dcc.Upload(
+                    id='upload-csv',
+                    children=html.Div([
+                        'Drag and drop or ',
+                        html.A('Select CSV File')
+                    ]),
+                    style={
+                        'width': '100%', 'height': '60px', 'lineHeight': '60px',
+                        'borderWidth': '1px', 'borderStyle': 'dashed', 'borderRadius': '5px',
+                        'textAlign': 'center', 'margin': '10px 0', 'backgroundColor': '#f9f9f9'
+                    },
+                    multiple=False,
+                    accept='.csv'
+                ),
+                html.Div(id='csv-upload-status', style={'margin': '5px 0', 'fontSize': '14px'}),
+            ], style={'marginBottom': '15px'}),
+
+            html.Div([
+                html.Label("Pilih Model:", style={'fontWeight': 'bold', 'marginRight': '10px'}),
+                dcc.Dropdown(
+                    id='model-selector',
+                    options=[
+                        {'label': 'Linear Regression (Cepat)', 'value': 'linear'},
+                        {'label': 'LSTM (Akurat, lebih lambat)', 'value': 'lstm'},
+                        {'label': 'Auto (Coba LSTM, fallback linear)', 'value': 'auto'},
+                        {'label': 'Ensemble (DLinear+LightGBM+TCN)', 'value': 'ensemble'}
+                    ],
+                    value='auto',
+                    clearable=False,
+                    style={'width': '350px', 'display': 'inline-block', 'verticalAlign': 'middle'}
+                ),
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '15px'}),
+
+            html.Div([
+                html.Button('Run Forecast', id='run-forecast-btn', n_clicks=0,
+                            style={
+                                'margin': '10px 10px 10px 0',
+                                'padding': '10px 24px',
+                                'backgroundColor': '#3498db',
+                                'color': 'white',
+                                'border': 'none',
+                                'borderRadius': '5px',
+                                'fontSize': '16px',
+                                'fontWeight': 'bold',
+                                'cursor': 'pointer'
+                            }),
+                dcc.Loading(
+                    id='loading-forecast',
+                    type='circle',
+                    children=html.Div(id='forecast-result', style={'margin': '10px', 'fontWeight': 'bold'})
+                ),
+            ], style={'display': 'flex', 'alignItems': 'center'}),
+        ], style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '5px', 'marginBottom': '20px',
+                  'boxShadow': '0 2px 5px rgba(0,0,0,0.1)'}),
+
+        # --- Period Selector (existing) ---
         html.Div([
             html.Label("Pilih Periode Prediksi:", style={'fontWeight': 'bold', 'marginRight': '10px'}),
             dcc.Dropdown(
@@ -123,6 +187,10 @@ def create_forecasting_layout():
             )
         ], style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '5px', 'marginBottom': '20px', 'boxShadow': '0 2px 5px rgba(0,0,0,0.1)', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
 
+        # Hidden stores
+        dcc.Store(id='bootstrap-data-store', storage_type='memory'),
+        dcc.Store(id='csv-data-store', storage_type='memory'),
+
         # Graphs Section
         html.Div([
             # Consumption Forecast Graph
@@ -137,7 +205,7 @@ def create_forecasting_layout():
                         config={'displayModeBar': False},
                     )
                 ),
-                html.P("Grafik ini menunjukkan estimasi penggunaan energi berdasarkan tren historis dan pola penggunaan.", 
+                html.P("Grafik ini menunjukkan estimasi penggunaan energi berdasarkan tren historis dan pola penggunaan.",
                        style={'fontSize': '14px', 'color': '#7f8c8d', 'textAlign': 'center', 'marginTop': '10px'})
             ], style={**CARD_STYLE, 'marginBottom': '30px'}),
 
@@ -153,7 +221,7 @@ def create_forecasting_layout():
                         config={'displayModeBar': False},
                     )
                 ),
-                html.P("Grafik ini memprediksi output dari panel surya dan turbin angin berdasarkan prakiraan cuaca.", 
+                html.P("Grafik ini memprediksi output dari panel surya dan turbin angin berdasarkan prakiraan cuaca.",
                        style={'fontSize': '14px', 'color': '#7f8c8d', 'textAlign': 'center', 'marginTop': '10px'})
             ], style={**CARD_STYLE, 'marginBottom': '30px'}),
             
@@ -169,7 +237,7 @@ def create_forecasting_layout():
                         config={'displayModeBar': False},
                     )
                 ),
-                html.P("Perbandingan antara data aktual yang tercatat dengan prediksi sebelumnya untuk mengevaluasi akurasi model.", 
+                html.P("Perbandingan antara data aktual yang tercatat dengan prediksi sebelumnya untuk mengevaluasi akurasi model.",
                        style={'fontSize': '14px', 'color': '#7f8c8d', 'textAlign': 'center', 'marginTop': '10px'})
             ], style=CARD_STYLE),
 

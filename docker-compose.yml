@@ -1,0 +1,65 @@
+# =============================================================================
+# docker-compose.yml — ECOAIMS Full Stack (Backend + Frontend)
+# =============================================================================
+# Usage:
+#   docker compose up --build       # Build and start both services
+#   docker compose down             # Stop and remove containers
+#   docker compose logs -f          # Follow logs
+# =============================================================================
+
+services:
+
+  # ── ECOAIMS Backend (FastAPI) ──────────────────────────────────────────
+  ecoaims-backend:
+    container_name: ecoaims-backend
+    build:
+      # Absolute path to the backend project directory
+      context: "/Users/juliansyah/Documents/UNDIP/Disertasi/4. Apps/pythonProject/ECO_AIMS/ECOAIMS_Adv_BE v-4"
+      # Dockerfile is named "Dockerfile" in the backend directory
+      dockerfile: Dockerfile
+    ports:
+      - "8008:8008"
+    environment:
+      - ECOAIMS_ENV=staging
+    restart: unless-stopped
+    healthcheck:
+      # python:3.12-slim does not include curl; use Python's urllib instead
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ecoaims-network
+
+  # ── ECOAIMS Frontend (Dash) ────────────────────────────────────────────
+  ecoaims-frontend:
+    container_name: ecoaims-frontend
+    build:
+      # Build from current directory (frontend) where Dockerfile exists
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8050:8050"
+    environment:
+      # Point to the backend container by service name (Docker DNS)
+      - ECOAIMS_API_BASE_URL=http://ecoaims-backend:8008
+      # Public URL for browser-downloadable links (e.g., Reports CSV)
+      # Must be resolvable from the user's browser, not from inside Docker.
+      - ECOAIMS_API_PUBLIC_URL=http://localhost:8008
+      # Enable auth for containerised deployment
+      - ECOAIMS_AUTH_ENABLED=true
+      - ECOAIMS_DASH_DEBUG=false
+      - ECOAIMS_DASH_USE_RELOADER=false
+      # Listen on all interfaces inside the container (required for Docker port mapping)
+      - ECOAIMS_DASH_HOST=0.0.0.0
+    depends_on:
+      ecoaims-backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ecoaims-network
+
+networks:
+  ecoaims-network:
+    driver: bridge

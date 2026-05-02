@@ -1,0 +1,69 @@
+# =============================================================================
+# docker-compose.prod.yml — ECOAIMS Production Deployment
+# =============================================================================
+# This file uses pre-built images from Docker Hub (not build from source).
+# It is intended for production deployment on a server.
+#
+# Usage:
+#   export $(grep -v '^#' .env.production | xargs)
+#   docker-compose -f docker-compose.prod.yml up -d
+#
+# To stop:
+#   docker-compose -f docker-compose.prod.yml down
+# =============================================================================
+
+services:
+
+  # ── ECOAIMS Backend (FastAPI) ──────────────────────────────────────────
+  ecoaims-backend:
+    image: juliansyah/ecoaims-backend:latest
+    container_name: ecoaims-backend-prod
+    ports:
+      - "8008:8008"
+    environment:
+      - ECOAIMS_ENV=${ECOAIMS_ENV:-production}
+      - ECOAIMS_AUTH_SECRET=${ECOAIMS_AUTH_SECRET}
+      - ECOAIMS_ADMIN_PASSWORD_HASH=${ECOAIMS_ADMIN_PASSWORD_HASH}
+      - ECOAIMS_ENFORCE_HTTPS=${ECOAIMS_ENFORCE_HTTPS:-true}
+      - ECOAIMS_ALLOWED_ORIGINS=${ECOAIMS_ALLOWED_ORIGINS:-http://localhost:8050}
+      - SQLITE_PATH=${SQLITE_PATH:-/app/.run/ecoaims.db}
+    volumes:
+      # Persist SQLite database across container restarts
+      - backend_data:/app/.run
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ecoaims-network
+
+  # ── ECOAIMS Frontend (Dash) ────────────────────────────────────────────
+  ecoaims-frontend:
+    image: juliansyah/ecoaims-frontend:latest
+    container_name: ecoaims-frontend-prod
+    ports:
+      - "8050:8050"
+    environment:
+      - ECOAIMS_API_BASE_URL=${ECOAIMS_API_BASE_URL:-http://ecoaims-backend:8008}
+      - ECOAIMS_API_PUBLIC_URL=${ECOAIMS_API_PUBLIC_URL:-http://localhost:8008}
+      - ECOAIMS_AUTH_ENABLED=${ECOAIMS_AUTH_ENABLED:-true}
+      - ECOAIMS_DASH_DEBUG=${ECOAIMS_DASH_DEBUG:-false}
+      - ECOAIMS_DASH_USE_RELOADER=${ECOAIMS_DASH_USE_RELOADER:-false}
+      - ECOAIMS_DASH_HOST=${ECOAIMS_DASH_HOST:-0.0.0.0}
+    depends_on:
+      ecoaims-backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ecoaims-network
+
+volumes:
+  backend_data:
+    driver: local
+
+networks:
+  ecoaims-network:
+    driver: bridge

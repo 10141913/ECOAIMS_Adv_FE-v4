@@ -14,6 +14,7 @@ from ecoaims_frontend.services.live_data_service import get_live_sensor_data
 from ecoaims_frontend.services.optimizer_tuner_api import suggest_tuner
 from ecoaims_frontend.services.policy_proposer_api import propose_policy_action
 from ecoaims_frontend.ui.error_ui import error_banner, error_figure, error_text
+from ecoaims_frontend.utils import get_headers
 
 
 def _monitoring_battery_state(*, base_url: str | None) -> dict | None:
@@ -894,11 +895,13 @@ def register_bms_callbacks(app):
             State("bms-tuner-enable", "value"),
             State("bms-tuner-mode", "value"),
             State("bms-policy-enable", "value"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def run_bms_rl_dispatch(_n_run, _n_load, export_mode, readiness, stream_id, endpoint_path, dispatch_mode, payload_text, tuner_enable, tuner_mode, policy_enable):
+    def run_bms_rl_dispatch(_n_run, _n_load, export_mode, readiness, stream_id, endpoint_path, dispatch_mode, payload_text, tuner_enable, tuner_mode, policy_enable, token_data):
         base_url = effective_base_url(readiness if isinstance(readiness, dict) else {})
+        bms_headers = get_headers(token_data)
         sid_in = str(stream_id or "").strip() or "proof-rl-1"
         mode = str(dispatch_mode or "").strip().lower() or "batch"
         default_path = "/ai/optimizer/dispatch/batch" if mode == "batch" else "/ai/optimizer/dispatch"
@@ -942,7 +945,7 @@ def register_bms_callbacks(app):
 
         def _openapi_paths(base: str) -> tuple[dict[str, Any] | None, str | None]:
             try:
-                resp = requests.get(f"{base}/openapi.json", timeout=(2.5, 5.0))
+                resp = requests.get(f"{base}/openapi.json", timeout=(2.5, 5.0), headers=bms_headers)
                 if int(resp.status_code) != 200:
                     return None, f"http_{resp.status_code}"
                 js = resp.json()
@@ -997,7 +1000,7 @@ def register_bms_callbacks(app):
             last_json: dict[str, Any] | None = None
             for _ in range(20):
                 try:
-                    r = requests.get(dash_url, timeout=(2.0, 6.0))
+                    r = requests.get(dash_url, timeout=(2.0, 6.0), headers=bms_headers)
                     last = f"HTTP {r.status_code}"
                     if int(r.status_code) == 200:
                         js = r.json()
@@ -1022,7 +1025,7 @@ def register_bms_callbacks(app):
             last_json: dict[str, Any] | None = None
             for _ in range(20):
                 try:
-                    r = requests.get(job_url, timeout=(2.0, 6.0))
+                    r = requests.get(job_url, timeout=(2.0, 6.0), headers=bms_headers)
                     last = f"HTTP {r.status_code}"
                     if int(r.status_code) == 200:
                         js = r.json()
@@ -1061,7 +1064,7 @@ def register_bms_callbacks(app):
 
                 job = None
                 job_id = None
-                resp = requests.post(url, json=parsed_payload, timeout=(2.5, 15.0))
+                resp = requests.post(url, json=parsed_payload, timeout=(2.5, 15.0), headers=bms_headers)
                 status = f"POST {path} -> HTTP {resp.status_code} (base_url={base_url})"
                 if tuner_note:
                     status = f"{tuner_note} | {status}"

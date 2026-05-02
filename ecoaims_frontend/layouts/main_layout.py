@@ -10,6 +10,7 @@ from ecoaims_frontend.layouts.bms_layout import create_bms_layout
 from ecoaims_frontend.layouts.reports_layout import create_reports_layout
 from ecoaims_frontend.layouts.help_layout import create_help_layout
 from ecoaims_frontend.layouts.about_layout import create_about_layout
+from ecoaims_frontend.layouts.indoor_layout import create_indoor_layout
 
 def create_layout() -> html.Div:
     """
@@ -50,6 +51,9 @@ def create_layout() -> html.Div:
     # --- About Content ---
     about_content = create_about_layout()
 
+    # --- Indoor Content ---
+    indoor_content = create_indoor_layout()
+
     # --- Main Layout Structure ---
     return html.Div(style={'backgroundColor': '#ecf0f1', 'minHeight': '100vh', 'fontFamily': 'Arial, sans-serif'}, children=[
     
@@ -64,6 +68,7 @@ def create_layout() -> html.Div:
 
         html.Div(id="backend-status-banner", style={"maxWidth": "1200px", "margin": "0 auto"}),
 
+        dcc.Store(id="token-store", storage_type="session"),
         dcc.Store(id="backend-readiness-store", storage_type="memory"),
         dcc.Store(id="optimizer-backend-store", storage_type="memory", data={"value": "grid"}),
         dcc.Store(id="contract-mismatch-store", storage_type="memory", data={"count": 0}),
@@ -115,6 +120,10 @@ def create_layout() -> html.Div:
             
             dcc.Tab(id="tab-bms", value="bms", label='BMS', children=bms_content,
                     selected_style={'borderTop': '3px solid #e67e22', 'fontWeight': 'bold'},
+                    style={'padding': '10px', 'fontWeight': 'bold', 'color': '#7f8c8d'}),
+
+            dcc.Tab(id="tab-indoor", value="indoor", label='Indoor Climate', children=indoor_content,
+                    selected_style={'borderTop': '3px solid #1abc9c', 'fontWeight': 'bold'},
                     style={'padding': '10px', 'fontWeight': 'bold', 'color': '#7f8c8d'}),
             
             dcc.Tab(id="tab-reports", value="reports", label='Reports', children=reports_content,

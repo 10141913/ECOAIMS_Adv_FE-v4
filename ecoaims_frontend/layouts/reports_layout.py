@@ -7,7 +7,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import pandas as pd
 import random
-from ecoaims_frontend.config import CARD_STYLE
+from ecoaims_frontend.config import CARD_STYLE, ECOAIMS_API_PUBLIC_URL
 import io
 import base64
 
@@ -27,6 +27,7 @@ from ecoaims_frontend.services.reports_api import (
 from ecoaims_frontend.services.base_url_service import effective_base_url
 from ecoaims_frontend.ui.error_ui import error_banner, error_figure, status_banner
 from ecoaims_frontend.ui.runtime_contract_banner import render_runtime_endpoint_contract_mismatch_banner
+from ecoaims_frontend.utils import get_headers
 
 _REPORTS_BUNDLE_FILES = [
     ("weather_timeseries.csv", "Unduh weather_timeseries.csv"),
@@ -327,7 +328,7 @@ def _reports_error_outputs(detail: str) -> tuple:
     )
 
 
-def compute_reports_outputs(period, impact_stream, impact_zone, impact_granularity, impact_basis_filter, readiness) -> tuple:
+def compute_reports_outputs(period, impact_stream, impact_zone, impact_granularity, impact_basis_filter, readiness, headers: dict | None = None) -> tuple:
     r = readiness if isinstance(readiness, dict) else {}
     eff = effective_feature_decision("reports", r)
     base_url = effective_base_url(r)
@@ -420,7 +421,7 @@ def compute_reports_outputs(period, impact_stream, impact_zone, impact_granulari
     basis_str = ",".join([str(x) for x in basis_vals if str(x).strip()]) if basis_vals else None
     gran = str(impact_granularity or "daily")
 
-    opts, opts_err = get_precooling_impact_filter_options(base_url=base_url)
+    opts, opts_err = get_precooling_impact_filter_options(base_url=base_url, headers=headers)
     if not opts_err and isinstance(opts, dict):
         streams = opts.get("streams") if isinstance(opts.get("streams"), list) else ["precooling"]
         zones = opts.get("zones") if isinstance(opts.get("zones"), list) else ["zone_a"]
@@ -430,7 +431,7 @@ def compute_reports_outputs(period, impact_stream, impact_zone, impact_granulari
     impact_stream = impact_stream or (stream_options[0]["value"] if stream_options else "precooling")
     impact_zone = impact_zone or (zone_options[0]["value"] if zone_options else "zone_a")
 
-    impact_data, impact_err = get_precooling_impact(period, zone=impact_zone, stream_id=impact_stream, basis_filter=basis_str, granularity=gran, base_url=base_url)
+    impact_data, impact_err = get_precooling_impact(period, zone=impact_zone, stream_id=impact_stream, basis_filter=basis_str, granularity=gran, base_url=base_url, headers=headers)
     if impact_err or not isinstance(impact_data, dict):
         if isinstance(impact_err, str) and "runtime_endpoint_contract_mismatch" in impact_err:
             last = get_last_reports_endpoint_contract()
@@ -476,7 +477,7 @@ def compute_reports_outputs(period, impact_stream, impact_zone, impact_granulari
         impact_peak_fig = _impact_fig_compare(scenarios if isinstance(scenarios, list) else [], "peak_kw", "Before vs After Peak", "kW")
         impact_quality = _quality_panel(quality if isinstance(quality, dict) else {}, str(basis), note)
 
-        hist_data, hist_err = get_precooling_impact_history(period=period, granularity=gran, basis_filter=basis_str, zone=impact_zone, stream_id=impact_stream, base_url=base_url)
+        hist_data, hist_err = get_precooling_impact_history(period=period, granularity=gran, basis_filter=basis_str, zone=impact_zone, stream_id=impact_stream, base_url=base_url, headers=headers)
         if hist_err:
             impact_trend_fig = error_figure("Precooling Impact Trend", hist_err)
             impact_history_table = html.Div(error_banner("Reports", "Gagal memuat Precooling Impact History", hist_err))
@@ -1183,14 +1184,15 @@ def create_reports_callbacks(app):
          Input('reports-precooling-impact-zone-filter', 'value'),
          Input('reports-precooling-impact-granularity', 'value'),
          Input('reports-precooling-impact-basis-filter', 'value')],
-        State("backend-readiness-store", "data"),
+        [State("backend-readiness-store", "data"), State("token-store", "data")],
     )
-    def update_reports(n_clicks, period, impact_stream, impact_zone, impact_granularity, impact_basis_filter, readiness):
+    def update_reports(n_clicks, period, impact_stream, impact_zone, impact_granularity, impact_basis_filter, readiness, token_data):
         """
         Updates all report components based on selected period.
         """
+        auth_headers = get_headers(token_data)
         try:
-            return compute_reports_outputs(period, impact_stream, impact_zone, impact_granularity, impact_basis_filter, readiness)
+            return compute_reports_outputs(period, impact_stream, impact_zone, impact_granularity, impact_basis_filter, readiness, headers=auth_headers)
         except Exception as e:
             return _reports_error_outputs(str(e))
 
@@ -1204,10 +1206,12 @@ def create_reports_callbacks(app):
             State("reports-precooling-impact-granularity", "value"),
             State("reports-precooling-impact-basis-filter", "value"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def export_precooling_impact_csv(n_clicks, period, stream_id, zone_id, granularity, basis_filter, readiness):
+    def export_precooling_impact_csv(n_clicks, period, stream_id, zone_id, granularity, basis_filter, readiness, token_data):
+        auth_headers = get_headers(token_data)
         r = readiness if isinstance(readiness, dict) else {}
         base_url = effective_base_url(r)
         reachable = bool(r.get("backend_reachable")) if "backend_reachable" in r else True
@@ -1231,6 +1235,7 @@ def create_reports_callbacks(app):
             zone=zone_id,
             stream_id=stream_id,
             base_url=base_url,
+            headers=auth_headers,
         )
         if err or not content:
             return None, error_banner("Reports", "Gagal export Precooling Impact CSV", err or "Dataset kosong.")
@@ -1252,7 +1257,8 @@ def create_reports_callbacks(app):
             return html.Div("Backend base URL belum tersedia.", style={"color": "#566573"})
 
         def _btn(filename: str, text: str):
-            url = base_url.rstrip("/") + "/api/reports/download/" + quote(filename)
+            public_url = (ECOAIMS_API_PUBLIC_URL or base_url).rstrip("/")
+            url = public_url + "/api/reports/download/" + quote(filename)
             return html.A(
                 text,
                 href=url,
@@ -1279,10 +1285,11 @@ def create_reports_callbacks(app):
     @app.callback(
         Output("reports-precooling-impact-session-modal-container", "children"),
         [Input("reports-precooling-impact-session-open-btn", "n_clicks"), Input({"type": "reports-precooling-impact-modal-close", "name": ALL}, "n_clicks")],
-        [State("reports-precooling-impact-session-select", "value"), State("reports-period-dropdown", "value"), State("reports-precooling-impact-stream-filter", "value"), State("reports-precooling-impact-zone-filter", "value"), State("backend-readiness-store", "data")],
+        [State("reports-precooling-impact-session-select", "value"), State("reports-period-dropdown", "value"), State("reports-precooling-impact-stream-filter", "value"), State("reports-precooling-impact-zone-filter", "value"), State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
-    def open_session_detail(open_clicks, close_clicks, selected_row_id, period, stream_id, zone_id, readiness):
+    def open_session_detail(open_clicks, close_clicks, selected_row_id, period, stream_id, zone_id, readiness, token_data):
+        auth_headers = get_headers(token_data)
         ctx = dash.callback_context
         if not ctx.triggered:
             return []
@@ -1461,7 +1468,7 @@ def create_reports_callbacks(app):
                 )
             ]
 
-        detail, err = get_precooling_impact_session_detail(row_id=rid, period=period, zone=zone_id, stream_id=stream_id, base_url=base_url)
+        detail, err = get_precooling_impact_session_detail(row_id=rid, period=period, zone=zone_id, stream_id=stream_id, base_url=base_url, headers=auth_headers)
         if err or not isinstance(detail, dict):
             body = error_banner("Reports", "Gagal memuat detail session", err or "Respons tidak valid")
             return [
@@ -1515,7 +1522,7 @@ def create_reports_callbacks(app):
         quality_flags = detail.get("quality_flags")
         quality_flags = quality_flags if isinstance(quality_flags, list) else []
 
-        ts_payload, ts_err = get_precooling_impact_session_timeseries(row_id=rid, period=period, zone=zone_id, stream_id=stream_id, base_url=base_url)
+        ts_payload, ts_err = get_precooling_impact_session_timeseries(row_id=rid, period=period, zone=zone_id, stream_id=stream_id, base_url=base_url, headers=auth_headers)
         evidence_fig = _evidence_fig(ts_payload if isinstance(ts_payload, dict) else None) if not ts_err else error_figure("Session Evidence (Timeseries)", ts_err)
 
         body = html.Div(

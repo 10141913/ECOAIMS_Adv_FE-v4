@@ -1,0 +1,50 @@
+# ── Python ─────────────────────────────────────────────────────────────
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Version control ────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Environment ────────────────────────────────────────────────────────
+.env
+
+# ── Logs ───────────────────────────────────────────────────────────────
+*.log
+
+# ── Data ───────────────────────────────────────────────────────────────
+data/*.csv
+output/
+
+# ── IDE / Editor ───────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Docker ─────────────────────────────────────────────────────────────
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# ── Documentation & scripts (not needed at runtime) ────────────────────
+docs/
+scripts/
+books/
+examples/
+Makefile
+README_FE.MD
+fix_reports.sh
+run_dev.sh
+cookies.txt
+captcha.json

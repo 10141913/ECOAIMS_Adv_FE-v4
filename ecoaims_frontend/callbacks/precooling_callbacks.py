@@ -38,6 +38,7 @@ from ecoaims_frontend.services.precooling_normalizer import (
 )
 from ecoaims_frontend.services.base_url_service import effective_base_url
 from ecoaims_frontend.ui.runtime_contract_banner import render_runtime_endpoint_contract_mismatch_banner
+from ecoaims_frontend.utils import get_headers
 
 
 def _now_str() -> str:
@@ -741,10 +742,11 @@ def register_precooling_callbacks(app):
             Output("precooling-zone-discovery-banner", "style"),
         ],
         [Input("backend-readiness-store", "data"), Input("precooling-interval", "n_intervals")],
-        [State("precooling-zones-store", "data")],
+        [State("precooling-zones-store", "data"), State("token-store", "data")],
     )
-    def refresh_precooling_zones(readiness, n, cached):
+    def refresh_precooling_zones(readiness, n, cached, token_data):
         base_url = effective_base_url(readiness)
+        prec_headers = get_headers(token_data)
         cache = cached if isinstance(cached, dict) else {}
         cache_base = cache.get("base_url")
         cache_zones = cache.get("zones") if isinstance(cache.get("zones"), list) else []
@@ -752,7 +754,7 @@ def register_precooling_callbacks(app):
             zone_items = [z for z in cache_zones if isinstance(z, dict) and isinstance(z.get("zone_id"), str)]
             return {"base_url": base_url, "zones": zone_items}, dash.no_update, dash.no_update
 
-        data, err = get_zones(base_url=base_url)
+        data, err = get_zones(base_url=base_url, headers=prec_headers)
         zones = data.get("zones") if isinstance(data, dict) else None
         zones_list = zones if isinstance(zones, list) else []
         zone_items = []
@@ -908,12 +910,13 @@ def register_precooling_callbacks(app):
             Input("precooling-zones-store", "data"),
             Input("precooling-refresh-signal", "data"),
         ],
-        [State("backend-readiness-store", "data")],
+        [State("backend-readiness-store", "data"), State("token-store", "data")],
     )
-    def refresh_precooling_data(n, mode, floor_value, floor_zone_map, zones_store, refresh_signal, readiness):
+    def refresh_precooling_data(n, mode, floor_value, floor_zone_map, zones_store, refresh_signal, readiness, token_data):
         mode_val = mode or "monitoring"
         try:
             base_url = effective_base_url(readiness)
+            prec_headers = get_headers(token_data)
             active_floor = _active_floor(floor_value)
             fm = _normalize_floor_zone_map(floor_zone_map)
             selected_zone_ids = [z for z in _target_zone_ids_from_map(fm) if _valid_zone_id(z)]
@@ -942,12 +945,12 @@ def register_precooling_callbacks(app):
 
             if len(zone_ids) == 1:
                 zid = zone_ids[0]
-                raw_status, err_status = get_status(zid, base_url=base_url)
-                raw_schedule, err_schedule = get_schedule(zid, base_url=base_url)
-                raw_scenarios, err_scenarios = get_scenarios(zid, base_url=base_url)
-                raw_kpi, err_kpi = get_kpi(zid, base_url=base_url)
-                raw_alerts, err_alerts = get_alerts(zid, base_url=base_url)
-                raw_audit, err_audit = get_audit(zid, base_url=base_url)
+                raw_status, err_status = get_status(zid, base_url=base_url, headers=prec_headers)
+                raw_schedule, err_schedule = get_schedule(zid, base_url=base_url, headers=prec_headers)
+                raw_scenarios, err_scenarios = get_scenarios(zid, base_url=base_url, headers=prec_headers)
+                raw_kpi, err_kpi = get_kpi(zid, base_url=base_url, headers=prec_headers)
+                raw_alerts, err_alerts = get_alerts(zid, base_url=base_url, headers=prec_headers)
+                raw_audit, err_audit = get_audit(zid, base_url=base_url, headers=prec_headers)
                 if isinstance(raw_status, dict):
                     raw_status = {**raw_status, "active_zones": ",".join(zone_ids)}
             else:
@@ -959,11 +962,11 @@ def register_precooling_callbacks(app):
                 errors: list[str] = []
 
                 for zid in zone_ids:
-                    st, e1 = get_status(zid, base_url=base_url)
-                    sc, e2 = get_scenarios(zid, base_url=base_url)
-                    kk, e3 = get_kpi(zid, base_url=base_url)
-                    al, e4 = get_alerts(zid, base_url=base_url)
-                    au, e5 = get_audit(zid, base_url=base_url)
+                    st, e1 = get_status(zid, base_url=base_url, headers=prec_headers)
+                    sc, e2 = get_scenarios(zid, base_url=base_url, headers=prec_headers)
+                    kk, e3 = get_kpi(zid, base_url=base_url, headers=prec_headers)
+                    al, e4 = get_alerts(zid, base_url=base_url, headers=prec_headers)
+                    au, e5 = get_audit(zid, base_url=base_url, headers=prec_headers)
                     for e in (e1, e2, e3, e4, e5):
                         if e:
                             errors.append(str(e))
@@ -1568,10 +1571,11 @@ def register_precooling_callbacks(app):
             State("precooling-sim-result-store", "data"),
             State("precooling-simulate-request-store", "data"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def preview_selector(_n, selector_enable, selector_backend, epsilon, min_candidates, return_candidates, sim_result, simulate_req, readiness):
+    def preview_selector(_n, selector_enable, selector_backend, epsilon, min_candidates, return_candidates, sim_result, simulate_req, readiness, token_data):
         if not _selector_enabled(selector_enable):
             msg = "Selector masih OFF. Aktifkan toggle lalu klik Preview Selector."
             return html.Div(msg, style={"color": "#7f8c8d", "fontWeight": "bold"}), "{}"
@@ -1612,9 +1616,10 @@ def register_precooling_callbacks(app):
             payload["selector_min_candidates"] = int(mn)
 
         base_url = effective_base_url(readiness)
+        prec_headers = get_headers(token_data)
         try:
             want_candidates = _selector_enabled(return_candidates)
-            resp = post_precooling_selector_preview(str(zone_id).strip(), payload, return_candidates=want_candidates, base_url=base_url)
+            resp = post_precooling_selector_preview(str(zone_id).strip(), payload, return_candidates=want_candidates, base_url=base_url, headers=prec_headers)
             if not isinstance(resp, dict):
                 raw = json.dumps({"ok": False, "error": "Respons preview selector tidak valid", "base_url": base_url, "zone_id": str(zone_id).strip()}, indent=2, sort_keys=True, ensure_ascii=False)
                 return html.Div("Respons preview selector tidak valid", style={"color": "#c0392b", "fontWeight": "bold"}), raw
@@ -1736,6 +1741,7 @@ def register_precooling_callbacks(app):
             State("precooling-selector-epsilon", "value"),
             State("precooling-selector-min-candidates", "value"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
         running=[
@@ -1745,7 +1751,7 @@ def register_precooling_callbacks(app):
             (Output("precooling-run-compare-btn", "children"), "Running...", "Run Comparison"),
         ],
     )
-    def run_simulation(n_clicks_sim, n_clicks_compare, floor_value, floor_zone_map, earliest, latest, durations, t_range, rh_range, w_cost, w_co2, w_comfort, w_battery, optimizer_backend, selector_enable, selector_backend, selector_epsilon, selector_min_candidates, readiness):
+    def run_simulation(n_clicks_sim, n_clicks_compare, floor_value, floor_zone_map, earliest, latest, durations, t_range, rh_range, w_cost, w_co2, w_comfort, w_battery, optimizer_backend, selector_enable, selector_backend, selector_epsilon, selector_min_candidates, readiness, token_data):
         try:
             floor = _active_floor(floor_value)
             fm = _normalize_floor_zone_map(floor_zone_map)
@@ -1780,17 +1786,18 @@ def register_precooling_callbacks(app):
                     except Exception:
                         pass
             base_url = effective_base_url(readiness)
+            prec_headers = get_headers(token_data)
             req = build_simulate_request(payload, base_url=base_url)
             diag = {"endpoint": "POST /api/precooling/simulate", "base_url": base_url, "raw_payload": payload, "request": req, "targets": zone_ids, "ts": _now_str()}
 
             errors: list[str] = []
-            primary_data, primary_err = post_simulate(payload, base_url=base_url)
+            primary_data, primary_err = post_simulate(payload, base_url=base_url, headers=prec_headers)
             if primary_err:
                 return dash.no_update, f"Simulasi Gagal, silakan coba lagi. Detail: {primary_err}", {"ts": _now_str()}, diag
             for zid in zone_ids[1:]:
                 p2 = dict(payload)
                 p2["zone_id"] = zid
-                _, e2 = post_simulate(p2, base_url=base_url)
+                _, e2 = post_simulate(p2, base_url=base_url, headers=prec_headers)
                 if e2:
                     errors.append(str(e2))
 
@@ -1820,10 +1827,12 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
     )
-    def confirm_force_fallback(n, floor_value, floor_zone_map, readiness):
+    def confirm_force_fallback(n, floor_value, floor_zone_map, readiness, token_data):
         base_url = effective_base_url(readiness)
+        prec_headers = get_headers(token_data)
         floor = _active_floor(floor_value)
         fm = _normalize_floor_zone_map(floor_zone_map)
         active_zones = fm.get(floor) if isinstance(fm.get(floor), list) else []
@@ -1834,7 +1843,7 @@ def register_precooling_callbacks(app):
             return "Zone belum dipilih.", {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_force_fallback({"zone_id": zid}, base_url=base_url)
+            _, err = post_force_fallback({"zone_id": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -1867,6 +1876,7 @@ def register_precooling_callbacks(app):
             State("precooling-selector-epsilon", "value"),
             State("precooling-selector-min-candidates", "value"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
         running=[
@@ -1874,7 +1884,7 @@ def register_precooling_callbacks(app):
             (Output("precooling-generate-candidates-btn", "children"), "Generating...", "Generate Candidates"),
         ],
     )
-    def generate_candidates(n_clicks, floor_value, floor_zone_map, earliest, latest, durations, t_range, rh_range, w_cost, w_co2, w_comfort, w_battery, optimizer_backend, selector_enable, selector_backend, selector_epsilon, selector_min_candidates, readiness):
+    def generate_candidates(n_clicks, floor_value, floor_zone_map, earliest, latest, durations, t_range, rh_range, w_cost, w_co2, w_comfort, w_battery, optimizer_backend, selector_enable, selector_backend, selector_epsilon, selector_min_candidates, readiness, token_data):
         try:
             floor = _active_floor(floor_value)
             fm = _normalize_floor_zone_map(floor_zone_map)
@@ -1910,17 +1920,18 @@ def register_precooling_callbacks(app):
                     except Exception:
                         pass
             base_url = effective_base_url(readiness)
+            prec_headers = get_headers(token_data)
             req = build_simulate_request(payload, base_url=base_url)
             diag = {"endpoint": "POST /api/precooling/simulate", "base_url": base_url, "raw_payload": payload, "request": req, "targets": zone_ids, "ts": _now_str()}
 
             errors: list[str] = []
-            primary_data, primary_err = post_simulate(payload, base_url=base_url)
+            primary_data, primary_err = post_simulate(payload, base_url=base_url, headers=prec_headers)
             if primary_err:
                 return dash.no_update, f"Simulasi Gagal, silakan coba lagi. Detail: {primary_err}", {"ts": _now_str()}, diag
             for zid in zone_ids[1:]:
                 p2 = dict(payload)
                 p2["zone_id"] = zid
-                _, e2 = post_simulate(p2, base_url=base_url)
+                _, e2 = post_simulate(p2, base_url=base_url, headers=prec_headers)
                 if e2:
                     errors.append(str(e2))
 
@@ -1963,12 +1974,14 @@ def register_precooling_callbacks(app):
             State("precooling-w-comfort", "value"),
             State("precooling-w-battery", "value"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
         running=[(Output("precooling-save-scenario-btn", "children"), "Saving...", "Save Scenario")],
     )
-    def save_scenario(n, floor_value, floor_zone_map, candidate, earliest, latest, durations, t_range, rh_range, w_cost, w_co2, w_comfort, w_battery, readiness):
+    def save_scenario(n, floor_value, floor_zone_map, candidate, earliest, latest, durations, t_range, rh_range, w_cost, w_co2, w_comfort, w_battery, readiness, token_data):
         floor = _active_floor(floor_value)
+        prec_headers = get_headers(token_data)
         fm = _normalize_floor_zone_map(floor_zone_map)
         active_zones = fm.get(floor) if isinstance(fm.get(floor), list) else []
         if not active_zones:
@@ -1985,7 +1998,7 @@ def register_precooling_callbacks(app):
             "weights": {"cost": w_cost, "co2": w_co2, "comfort": w_comfort, "battery_health": w_battery},
         }
         base_url = effective_base_url(readiness)
-        _, err = post_apply({"action": "save_scenario", "zone_id": zid, "zone": zid, "scenario": scenario_payload}, base_url=base_url)
+        _, err = post_apply({"action": "save_scenario", "zone_id": zid, "zone": zid, "scenario": scenario_payload}, base_url=base_url, headers=prec_headers)
         if err:
             return f"Gagal menyimpan scenario: {err}", {"ts": _now_str()}
         return "Scenario tersimpan.", {"ts": _now_str()}
@@ -2019,15 +2032,17 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[
             (Output("precooling-apply-btn", "children"), "Applying...", "Apply Recommendation"),
         ],
     )
-    def apply_recommendation(n, candidate, floor_value, floor_zone_map, readiness):
+    def apply_recommendation(n, candidate, floor_value, floor_zone_map, readiness, token_data):
         if not isinstance(candidate, dict) or not candidate:
             return "Tidak ada recommendation yang dipilih.", {"ts": _now_str()}
         floor = _active_floor(floor_value)
+        prec_headers = get_headers(token_data)
         fm = _normalize_floor_zone_map(floor_zone_map)
         active_zones = fm.get(floor) if isinstance(fm.get(floor), list) else []
         if not active_zones:
@@ -2039,7 +2054,7 @@ def register_precooling_callbacks(app):
         errors = []
         for zid in zone_ids:
             payload = {"action": "apply_recommendation", "zone_id": zid, "zone": zid, "candidate": candidate}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2080,10 +2095,11 @@ def register_precooling_callbacks(app):
             State("precooling-simulate-request-store", "data"),
             State("precooling-sim-result-store", "data"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def export_golden_sample(n, zone, mode, simulate_req, sim_result, readiness):
+    def export_golden_sample(n, zone, mode, simulate_req, sim_result, readiness, token_data):
         base_url = effective_base_url(readiness)
         z = str(zone or "").strip() or "all"
         m = str(mode or "").strip() or ""
@@ -2094,8 +2110,9 @@ def register_precooling_callbacks(app):
         doctor_error = None
         if isinstance(base_url, str) and base_url.strip():
             url = f"{base_url.rstrip('/')}/diag/doctor"
+            prec_headers = get_headers(token_data)
             try:
-                r = requests.get(url, timeout=(1.5, 3.5))
+                r = requests.get(url, timeout=(1.5, 3.5), headers=prec_headers)
                 if int(r.status_code) == 200:
                     doctor_payload = r.json()
                 else:
@@ -2124,9 +2141,11 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
     )
-    def push_mode_to_backend(mode, floor_value, floor_zone_map, readiness):
+    def push_mode_to_backend(mode, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
@@ -2134,21 +2153,21 @@ def register_precooling_callbacks(app):
         errors = []
         for zid in zone_ids:
             payload = {"action": "switch_mode", "zone": zid, "mode": mode}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
             return f"Gagal mengubah mode: {', '.join(errors[:3])}", {"ts": _now_str()}
         return f"Mode diubah menjadi {mode}.", {"ts": _now_str()}
 
-    def _apply_simple_action(action: str, zone: str, base_url: str) -> Tuple[str, Dict[str, str]]:
+    def _apply_simple_action(action: str, zone: str, base_url: str, headers: dict | None = None) -> Tuple[str, Dict[str, str]]:
         zone_ids = _expand_zone_scope(zone)
         if not zone_ids:
             return "Zone belum dipilih.", {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
             payload = {"action": action, "zone": zid}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2161,17 +2180,19 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-activate-btn", "children"), "Activating...", "Activate")],
     )
-    def action_activate(n, floor_value, floor_zone_map, readiness):
+    def action_activate(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
             return err_msg, {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_apply({"action": "activate", "zone": zid}, base_url=base_url)
+            _, err = post_apply({"action": "activate", "zone": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2184,17 +2205,19 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-pause-btn", "children"), "Pausing...", "Pause")],
     )
-    def action_pause(n, floor_value, floor_zone_map, readiness):
+    def action_pause(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
             return err_msg, {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_apply({"action": "pause", "zone": zid}, base_url=base_url)
+            _, err = post_apply({"action": "pause", "zone": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2207,17 +2230,19 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-cancel-btn", "children"), "Cancelling...", "Cancel Today")],
     )
-    def action_cancel(n, floor_value, floor_zone_map, readiness):
+    def action_cancel(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
             return err_msg, {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_apply({"action": "cancel_today", "zone": zid}, base_url=base_url)
+            _, err = post_apply({"action": "cancel_today", "zone": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2230,17 +2255,19 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-rulebased-btn", "children"), "Applying...", "Use Rule-Based Strategy")],
     )
-    def action_rulebased(n, floor_value, floor_zone_map, readiness):
+    def action_rulebased(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
             return err_msg, {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_apply({"action": "use_rule_based", "zone": zid}, base_url=base_url)
+            _, err = post_apply({"action": "use_rule_based", "zone": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2253,17 +2280,19 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-recompute-btn", "children"), "Recomputing...", "Recompute Schedule")],
     )
-    def action_recompute(n, floor_value, floor_zone_map, readiness):
+    def action_recompute(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
             return err_msg, {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_apply({"action": "recompute_schedule", "zone": zid}, base_url=base_url)
+            _, err = post_apply({"action": "recompute_schedule", "zone": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2276,17 +2305,19 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-stop-btn", "children"), "Stopping...", "Stop Precooling")],
     )
-    def action_stop(n, floor_value, floor_zone_map, readiness):
+    def action_stop(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
             return err_msg, {"ts": _now_str()}
         errors = []
         for zid in zone_ids:
-            _, err = post_apply({"action": "stop_precooling", "zone": zid}, base_url=base_url)
+            _, err = post_apply({"action": "stop_precooling", "zone": zid}, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2299,10 +2330,12 @@ def register_precooling_callbacks(app):
         State("precooling-floor", "value"),
         State("precooling-floor-zone-map", "data"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-switch-advisory-btn", "children"), "Switching...", "Switch to Advisory")],
     )
-    def action_switch_advisory(n, floor_value, floor_zone_map, readiness):
+    def action_switch_advisory(n, floor_value, floor_zone_map, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
@@ -2310,7 +2343,7 @@ def register_precooling_callbacks(app):
         errors = []
         for zid in zone_ids:
             payload = {"action": "switch_mode", "zone": zid, "mode": "advisory"}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2330,11 +2363,13 @@ def register_precooling_callbacks(app):
             State("precooling-override-energy-source", "value"),
             State("precooling-override-reason", "value"),
             State("backend-readiness-store", "data"),
+            State("token-store", "data"),
         ],
         prevent_initial_call=True,
         running=[(Output("precooling-request-override-btn", "children"), "Requesting...", "Request Manual Override")],
     )
-    def action_request_override(n, floor_value, floor_zone_map, temp, rh, duration, hvac_mode, energy_source, reason, readiness):
+    def action_request_override(n, floor_value, floor_zone_map, temp, rh, duration, hvac_mode, energy_source, reason, readiness, token_data):
+        prec_headers = get_headers(token_data)
         override = {
             "duration_min": duration,
             "temperature_setpoint_c": temp,
@@ -2349,7 +2384,7 @@ def register_precooling_callbacks(app):
         errors = []
         for zid in zone_ids:
             payload = {"action": "request_manual_override", "zone": zid, "override": override, "reason": reason or ""}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2363,10 +2398,12 @@ def register_precooling_callbacks(app):
         State("precooling-floor-zone-map", "data"),
         State("precooling-override-reason", "value"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
         running=[(Output("precooling-approve-override-btn", "children"), "Approving...", "Approve Manual Override")],
     )
-    def action_approve_override(n, floor_value, floor_zone_map, reason, readiness):
+    def action_approve_override(n, floor_value, floor_zone_map, reason, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
@@ -2374,7 +2411,7 @@ def register_precooling_callbacks(app):
         errors = []
         for zid in zone_ids:
             payload = {"action": "approve_manual_override", "zone": zid, "reason": reason or ""}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:
@@ -2384,11 +2421,12 @@ def register_precooling_callbacks(app):
     @app.callback(
         [Output("precooling-override-action-feedback", "children", allow_duplicate=True), Output("precooling-refresh-signal", "data", allow_duplicate=True)],
         Input("precooling-cancel-override-btn", "n_clicks"),
-        [State("precooling-floor", "value"), State("precooling-floor-zone-map", "data"), State("precooling-override-reason", "value"), State("backend-readiness-store", "data")],
+        [State("precooling-floor", "value"), State("precooling-floor-zone-map", "data"), State("precooling-override-reason", "value"), State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
         running=[(Output("precooling-cancel-override-btn", "children"), "Cancelling...", "Cancel Manual Override")],
     )
-    def action_cancel_override(n, floor_value, floor_zone_map, reason, readiness):
+    def action_cancel_override(n, floor_value, floor_zone_map, reason, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         zone_ids, err_msg = _resolve_targets_or_error(floor_value, floor_zone_map)
         if err_msg:
@@ -2396,7 +2434,7 @@ def register_precooling_callbacks(app):
         errors = []
         for zid in zone_ids:
             payload = {"action": "cancel_manual_override", "zone": zid, "reason": reason or ""}
-            _, err = post_apply(payload, base_url=base_url)
+            _, err = post_apply(payload, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(str(err))
         if errors:

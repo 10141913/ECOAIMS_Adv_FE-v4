@@ -15,6 +15,7 @@ from ecoaims_frontend.services.precooling_api import (
     post_settings_validate,
 )
 from ecoaims_frontend.services.base_url_service import effective_base_url
+from ecoaims_frontend.utils import get_headers
 
 
 def _now_str() -> str:
@@ -529,9 +530,10 @@ def register_precooling_settings_callbacks(app):
     @app.callback(
         Output("precoolset-zones-store", "data"),
         [Input("backend-readiness-store", "data"), Input("backend-readiness-interval", "n_intervals")],
-        [State("precoolset-zones-store", "data")],
+        [State("precoolset-zones-store", "data"), State("token-store", "data")],
     )
-    def refresh_precoolset_zones(readiness, n, cached):
+    def refresh_precoolset_zones(readiness, n, cached, token_data):
+        prec_headers = get_headers(token_data)
         def _sort_key(zid: str):
             s = str(zid or "").strip()
             if not s:
@@ -555,7 +557,7 @@ def register_precooling_settings_callbacks(app):
             zone_items = [z for z in cache_zones if isinstance(z, dict) and isinstance(z.get("zone_id"), str)]
             return {"base_url": base_url, "zones": zone_items}
 
-        data, _ = get_zones(base_url=base_url)
+        data, _ = get_zones(base_url=base_url, headers=prec_headers)
         zones = data.get("zones") if isinstance(data, dict) else None
         zones_list = zones if isinstance(zones, list) else []
         zone_items = []
@@ -682,21 +684,22 @@ def register_precooling_settings_callbacks(app):
             Input("precoolset-floor", "value"),
             Input("precoolset-zone", "value"),
         ],
-        State("backend-readiness-store", "data"),
+        [State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call="initial_duplicate",
     )
-    def load_current(n, floor_value, zones_value, readiness):
+    def load_current(n, floor_value, zones_value, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         scope_ids = _scope_ids_from_ui(floor_value, zones_value)
         if not scope_ids:
             return no_update, no_update, "ERROR", _badge_style("ERROR"), "Pilih Scope (Lantai + minimal 1 zone) terlebih dahulu."
         primary = scope_ids[0]
-        data, err = get_settings(zone_id=primary, base_url=base_url)
+        data, err = get_settings(zone_id=primary, base_url=base_url, headers=prec_headers)
         if err:
             return no_update, no_update, "ERROR", _badge_style("ERROR"), f"Gagal memuat konfigurasi precooling: {err}"
 
         bundle = data or {}
-        default_data, _ = get_settings_default(zone_id=primary, base_url=base_url)
+        default_data, _ = get_settings_default(zone_id=primary, base_url=base_url, headers=prec_headers)
         default_cfg = (default_data or {}).get("default", {})
         bundle = {**bundle, "default": default_cfg}
 
@@ -836,14 +839,16 @@ def register_precooling_settings_callbacks(app):
             Output("precoolset-action-msg", "children", allow_duplicate=True),
         ],
         Input("precoolset-validate-btn", "n_clicks"),
-        form_states + [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data")],
+        form_states + [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
     def validate_clicked(n, *values):
-        readiness = values[-1] if len(values) else {}
-        zones_value = values[-2] if len(values) >= 2 else None
-        floor_value = values[-3] if len(values) >= 3 else None
-        cfg = _cfg_from_form(*values[:-3])
+        token_data = values[-1] if len(values) else {}
+        readiness = values[-2] if len(values) >= 2 else {}
+        zones_value = values[-3] if len(values) >= 3 else None
+        floor_value = values[-4] if len(values) >= 4 else None
+        cfg = _cfg_from_form(*values[:-4])
+        prec_headers = get_headers(token_data)
 
         base_url = effective_base_url(readiness)
         scope_ids = _scope_ids_from_ui(floor_value, zones_value)
@@ -854,7 +859,7 @@ def register_precooling_settings_callbacks(app):
         warnings: list[str] = []
         ok_all = True
         for target in scope_ids:
-            data, err = post_settings_validate(cfg, zone_id=target, base_url=base_url)
+            data, err = post_settings_validate(cfg, zone_id=target, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(f"{target}: {err}")
                 ok_all = False
@@ -887,14 +892,16 @@ def register_precooling_settings_callbacks(app):
             Output("precoolset-action-msg", "children", allow_duplicate=True),
         ],
         Input("precoolset-save-btn", "n_clicks"),
-        form_states + [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data")],
+        form_states + [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
     def save_clicked(n, *values):
-        readiness = values[-1] if len(values) else {}
-        zones_value = values[-2] if len(values) >= 2 else None
-        floor_value = values[-3] if len(values) >= 3 else None
-        cfg = _cfg_from_form(*values[:-3])
+        token_data = values[-1] if len(values) else {}
+        readiness = values[-2] if len(values) >= 2 else {}
+        zones_value = values[-3] if len(values) >= 3 else None
+        floor_value = values[-4] if len(values) >= 4 else None
+        cfg = _cfg_from_form(*values[:-4])
+        prec_headers = get_headers(token_data)
 
         base_url = effective_base_url(readiness)
         scope_ids = _scope_ids_from_ui(floor_value, zones_value)
@@ -904,7 +911,7 @@ def register_precooling_settings_callbacks(app):
         warnings: list[str] = []
         first_bundle: dict[str, Any] | None = None
         for target in scope_ids:
-            data, err = post_settings_save(cfg, zone_id=target, base_url=base_url)
+            data, err = post_settings_save(cfg, zone_id=target, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(f"{target}: {err}")
                 continue
@@ -917,7 +924,7 @@ def register_precooling_settings_callbacks(app):
             return no_update, no_update, "ERROR", _badge_style("ERROR"), f"Gagal menyimpan konfigurasi: {', '.join(errors[:4])}"
 
         bundle = first_bundle or {}
-        default_data, _ = get_settings_default(zone_id=scope_ids[0], base_url=base_url)
+        default_data, _ = get_settings_default(zone_id=scope_ids[0], base_url=base_url, headers=prec_headers)
         default_cfg = (default_data or {}).get("default", {})
         bundle = {**bundle, "default": default_cfg}
         draft = bundle.get("draft") if isinstance(bundle.get("draft"), dict) else {}
@@ -938,10 +945,11 @@ def register_precooling_settings_callbacks(app):
             Output("precoolset-action-msg", "children", allow_duplicate=True),
         ],
         Input("precoolset-reset-btn", "n_clicks"),
-        [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data")],
+        [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
-    def reset_clicked(n, floor_value, zones_value, readiness):
+    def reset_clicked(n, floor_value, zones_value, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         scope_ids = _scope_ids_from_ui(floor_value, zones_value)
         if not scope_ids:
@@ -949,7 +957,7 @@ def register_precooling_settings_callbacks(app):
         errors: list[str] = []
         first_bundle: dict[str, Any] | None = None
         for target in scope_ids:
-            data, err = post_settings_reset(zone_id=target, base_url=base_url)
+            data, err = post_settings_reset(zone_id=target, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(f"{target}: {err}")
                 continue
@@ -959,7 +967,7 @@ def register_precooling_settings_callbacks(app):
             return no_update, no_update, "ERROR", _badge_style("ERROR"), f"Gagal reset konfigurasi: {', '.join(errors[:4])}"
 
         bundle = first_bundle or {}
-        default_data, _ = get_settings_default(zone_id=scope_ids[0], base_url=base_url)
+        default_data, _ = get_settings_default(zone_id=scope_ids[0], base_url=base_url, headers=prec_headers)
         default_cfg = (default_data or {}).get("default", {})
         bundle = {**bundle, "default": default_cfg}
         draft = bundle.get("draft") if isinstance(bundle.get("draft"), dict) else {}
@@ -979,10 +987,11 @@ def register_precooling_settings_callbacks(app):
             Output("precooling-refresh-signal", "data", allow_duplicate=True),
         ],
         Input("precoolset-apply-btn", "n_clicks"),
-        [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data")],
+        [State("precoolset-floor", "value"), State("precoolset-zone", "value"), State("backend-readiness-store", "data"), State("token-store", "data")],
         prevent_initial_call=True,
     )
-    def apply_clicked(n, floor_value, zones_value, readiness):
+    def apply_clicked(n, floor_value, zones_value, readiness, token_data):
+        prec_headers = get_headers(token_data)
         base_url = effective_base_url(readiness)
         scope_ids = _scope_ids_from_ui(floor_value, zones_value)
         if not scope_ids:
@@ -993,7 +1002,7 @@ def register_precooling_settings_callbacks(app):
         first_bundle: dict[str, Any] | None = None
         ok_all = True
         for target in scope_ids:
-            data, err = post_settings_apply(zone_id=target, base_url=base_url)
+            data, err = post_settings_apply(zone_id=target, base_url=base_url, headers=prec_headers)
             if err:
                 errors.append(f"{target}: {err}")
                 ok_all = False
@@ -1010,7 +1019,7 @@ def register_precooling_settings_callbacks(app):
             return no_update, no_update, "ERROR", _badge_style("ERROR"), f"Gagal apply konfigurasi: {', '.join(errors[:4])}", {"ts": _now_str(), "src": "settings_apply"}
 
         bundle = first_bundle or {}
-        default_data, _ = get_settings_default(zone_id=scope_ids[0], base_url=base_url)
+        default_data, _ = get_settings_default(zone_id=scope_ids[0], base_url=base_url, headers=prec_headers)
         default_cfg = (default_data or {}).get("default", {})
         bundle = {**bundle, "default": default_cfg}
         active = bundle.get("active") if isinstance(bundle.get("active"), dict) else {}

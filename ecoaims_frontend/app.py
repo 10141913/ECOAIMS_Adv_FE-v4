@@ -9,6 +9,33 @@ from datetime import datetime, timedelta, timezone
 import json
 import requests
 
+# ── Load .env manually (no python-dotnet dependency) ──────────────────────
+def _load_env_file(path: str) -> None:
+    """Minimal .env parser: sets os.environ for each KEY=val line."""
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                k = key.strip()
+                v = val.strip().strip("\"'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception:
+        pass  # best-effort
+
+_env_candidates = [
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"),   # project root
+    os.path.join(os.getcwd(), ".env"),                                   # cwd
+]
+for _p in _env_candidates:
+    _load_env_file(_p)
+# ──────────────────────────────────────────────────────────────────────────
+
 from flask import Response, redirect, request, session
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -16,6 +43,7 @@ from werkzeug.security import check_password_hash
 
 from ecoaims_frontend.config import ECOAIMS_API_BASE_URL, MIN_HISTORY_FOR_COMPARISON
 from ecoaims_frontend.layouts.main_layout import create_layout
+from ecoaims_frontend.layouts.login_layout import create_login_layout
 from ecoaims_frontend.callbacks.main_callbacks import register_callbacks
 from ecoaims_frontend.callbacks.forecasting_callbacks import register_forecasting_callbacks
 from ecoaims_frontend.callbacks.optimization_callbacks import register_optimization_callbacks
@@ -26,6 +54,8 @@ from ecoaims_frontend.callbacks.precooling_settings_callbacks import register_pr
 from ecoaims_frontend.callbacks.readiness_callbacks import register_readiness_callbacks
 from ecoaims_frontend.callbacks.home_callbacks import register_home_callbacks
 from ecoaims_frontend.callbacks.about_callbacks import register_about_callbacks
+from ecoaims_frontend.callbacks.indoor_callbacks import register_indoor_callbacks
+from ecoaims_frontend.callbacks.auth_callbacks import register_auth_callbacks
 from ecoaims_frontend.layouts.reports_layout import create_reports_callbacks
 from ecoaims_frontend.services.optimization_service import prometheus_metrics_text
 
@@ -86,6 +116,14 @@ def _auth_allowed_paths(path: str) -> bool:
     if p.startswith("/instructions/"):
         return True
     if p in {"/__runtime", "/metrics", "/favicon.ico"}:
+        return True
+    # Dash internal routes (layout, dependencies, callbacks, component suites, etc.)
+    # must bypass the before_request gateway so the Dash frontend can fetch them.
+    # Authentication is enforced inside _resolve_layout() for the layout itself,
+    # and callbacks validate tokens/backend auth independently.
+    if p.startswith("/_dash-"):
+        return True
+    if p.startswith("/_reload-hash"):
         return True
     return False
 
@@ -615,8 +653,20 @@ def create_app():
     """
     app = dash.Dash(__name__)
     
-    # Set Layout
-    app.layout = create_layout()
+    # Use a function-based layout so the auth check happens per-request
+    # (not at import time when there is no Flask session yet).
+    def _resolve_layout():
+        try:
+            if _auth_enabled() and not _is_authenticated():
+                logger.debug("_resolve_layout: not authenticated (auth_enabled=%s), returning login layout", _auth_enabled())
+                return create_login_layout()
+            logger.debug("_resolve_layout: authenticated (auth_enabled=%s), returning dashboard layout", _auth_enabled())
+            return create_layout()
+        except Exception as e:
+            logger.error("_resolve_layout error: %s", e, exc_info=True)
+            # Fallback to login layout on error
+            return create_login_layout()
+    app.layout = _resolve_layout
     
     # Register Callbacks
     register_readiness_callbacks(app)
@@ -628,7 +678,9 @@ def create_app():
     register_bms_callbacks(app)
     register_precooling_callbacks(app)
     register_precooling_settings_callbacks(app)
+    register_indoor_callbacks(app)
     register_about_callbacks(app)
+    register_auth_callbacks(app)
     create_reports_callbacks(app)
     
     return app
@@ -732,61 +784,38 @@ def captcha_svg():
 
 @server.get("/api/auth/captcha")
 def api_auth_captcha():
+    """
+    Generate a CAPTCHA locally (no backend dependency).
+    This endpoint is used by the Flask login page's JavaScript.
+    """
     if not _auth_enabled():
         return _json_response({"ok": False, "error": "auth_disabled"}, 404)
-    if _auth_mode() != "proxy":
-        txt = _new_captcha_text()
-        ttl_s = _captcha_ttl_s()
-        now_i = int(time.time())
-        session["ecoaims_captcha"] = txt
-        session["ecoaims_captcha_expires_at"] = now_i + ttl_s
-        csrf = secrets.token_urlsafe(24)
-        session["ecoaims_csrf"] = csrf
 
-        token_payload = {"captcha": txt, "csrf_token": csrf, "issued_at": now_i, "ttl_s": ttl_s}
-        captcha_token = _serializer().dumps(token_payload)
+    # Always generate CAPTCHA locally — no backend proxy needed.
+    # The backend does not provide a /api/auth/captcha endpoint,
+    # so proxying would always return 404 / "Captcha tidak tersedia".
+    txt = _new_captcha_text()
+    ttl_s = _captcha_ttl_s()
+    now_i = int(time.time())
+    session["ecoaims_captcha"] = txt
+    session["ecoaims_captcha_expires_at"] = now_i + ttl_s
+    csrf = secrets.token_urlsafe(24)
+    session["ecoaims_csrf"] = csrf
 
-        svg = _captcha_svg(txt)
-        data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
-        payload = {
-            "csrf_token": csrf,
-            "captcha_image": data_url,
-            "ttl_s": ttl_s,
-            "captcha_token": captcha_token,
-            "csrf_session": captcha_token,
-        }
-        resp = _json_response(payload, 200)
-        resp.headers["Cache-Control"] = "no-store, max-age=0"
-        return resp
+    token_payload = {"captcha": txt, "csrf_token": csrf, "issued_at": now_i, "ttl_s": ttl_s}
+    captcha_token = _serializer().dumps(token_payload)
 
-    try:
-        be = _backend_request("GET", "/api/auth/captcha", json_body=None, headers=None)
-    except Exception:
-        return _json_response({"detail": "backend_unreachable"}, 503)
-    try:
-        data = be.json()
-    except Exception:
-        data = None
-    payload = data if isinstance(data, dict) else {}
-    if "captcha_image" not in payload:
-        b64 = payload.get("captcha_svg_base64")
-        if isinstance(b64, str) and b64.strip():
-            payload["captcha_image"] = "data:image/svg+xml;base64," + b64.strip()
-        else:
-            svg = payload.get("captcha_svg")
-            if isinstance(svg, str) and svg.strip():
-                payload["captcha_image"] = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
-
-    resp = server.response_class(
-        response=json.dumps(payload, sort_keys=True, separators=(",", ":")),
-        status=int(be.status_code),
-        mimetype="application/json",
-    )
-    for sc in _extract_set_cookie_headers(be):
-        resp.headers.add("Set-Cookie", sc)
-    rid = be.headers.get("x-request-id")
-    if rid:
-        resp.headers["x-request-id"] = str(rid)
+    svg = _captcha_svg(txt)
+    data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    payload = {
+        "csrf_token": csrf,
+        "captcha_image": data_url,
+        "captcha_text": txt,
+        "ttl_s": ttl_s,
+        "captcha_token": captcha_token,
+        "csrf_session": captcha_token,
+    }
+    resp = _json_response(payload, 200)
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
@@ -927,7 +956,18 @@ def _handle_login_submit():
             pass_ok = False
 
     ok = bool(captcha_ok and user_ok and pass_ok)
-    logger.info("auth_attempt ok=%s ip=%s ts=%s", ok, ip, _now_iso())
+    logger.info(
+        "auth_attempt ok=%s ip=%s ts=%s captcha_ok=%s user_ok=%s pass_ok=%s username=%s captcha_len=%d",
+        ok, ip, _now_iso(), captcha_ok, user_ok, pass_ok,
+        username, len(captcha),
+    )
+    if not ok:
+        if not captcha_ok:
+            logger.warning("login_fail_captcha ip=%s expected=%s submitted=%s", ip, session.get("ecoaims_captcha","?"), captcha)
+        if not user_ok:
+            logger.warning("login_fail_username ip=%s expected=%s submitted=%s", ip, admin_user, username)
+        if not pass_ok:
+            logger.warning("login_fail_password ip=%s username=%s", ip, username)
     if not ok:
         _rate_limit_record_failed(ip)
         session["ecoaims_captcha"] = ""

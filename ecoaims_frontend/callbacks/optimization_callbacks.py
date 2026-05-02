@@ -10,6 +10,7 @@ from ecoaims_frontend.services.live_data_service import get_live_sensor_data
 from ecoaims_frontend.ui.error_ui import error_figure, error_text, status_banner
 from ecoaims_frontend.services.base_url_service import effective_base_url
 from ecoaims_frontend.ui.runtime_contract_banner import render_runtime_endpoint_contract_mismatch_banner
+from ecoaims_frontend.utils import get_headers
 
 def register_optimization_callbacks(app):
     """
@@ -24,9 +25,9 @@ def register_optimization_callbacks(app):
          Input('opt-priority-dropdown', 'value'),
          Input('opt-battery-slider', 'value'),
          Input('opt-grid-slider', 'value')],
-        [State("backend-readiness-store", "data"), State("opt-optimizer-backend", "value")],
+        [State("backend-readiness-store", "data"), State("opt-optimizer-backend", "value"), State("token-store", "data")],
     )
-    def update_optimization_result(n_clicks, priority, battery_capacity, grid_limit, readiness, optimizer_backend):
+    def update_optimization_result(n_clicks, priority, battery_capacity, grid_limit, readiness, optimizer_backend, token_data):
         """
         Runs the simulation (or backend call) when parameters change.
         """
@@ -80,7 +81,8 @@ def register_optimization_callbacks(app):
 
             if base:
                 try:
-                    state = requests.get(f"{base}/dashboard/state?stream_id=default", timeout=3).json()
+                    opt_headers = get_headers(token_data)
+                    state = requests.get(f"{base}/dashboard/state?stream_id=default", timeout=3, headers=opt_headers).json()
                     if isinstance(state, dict):
                         pv = float(state.get("pv_power") or 0.0)
                         wt = float(state.get("wind_power") or 0.0)

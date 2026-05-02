@@ -105,7 +105,7 @@ def _format_http_error(path: str, exc: requests.HTTPError, *, base_url: str | No
     return f"HTTP {status} saat memanggil {path}{suffix}"
 
 
-def _safe_get(path: str, params: Optional[Dict[str, Any]] = None, timeout_s: float = 5.0, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def _safe_get(path: str, params: Optional[Dict[str, Any]] = None, timeout_s: float = 5.0, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     global _PRECOOLING_DOWN_UNTIL_TS
     global _PRECOOLING_LAST_LOG_TS
     now = time.time()
@@ -114,8 +114,11 @@ def _safe_get(path: str, params: Optional[Dict[str, Any]] = None, timeout_s: flo
     url = _build_url(path, base_url=base_url)
     _LAST_PRECOOLING_ENDPOINT_CONTRACT["base_url"] = str(base_url or "").rstrip("/") if isinstance(base_url, str) else str((ECOAIMS_API_BASE_URL or PRECOOLING_API_BASE_URL).rstrip("/"))
     try:
+        merged_headers = dict(headers or {})
         th = trace_headers()
-        resp = requests.get(url, params=params, timeout=timeout_s, **({"headers": th} if th else {}))
+        if th:
+            merged_headers.update(th)
+        resp = requests.get(url, params=params, timeout=timeout_s, headers=merged_headers or None)
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, dict):
@@ -143,6 +146,7 @@ def _safe_post(
     *,
     params: Optional[Dict[str, Any]] = None,
     base_url: str | None = None,
+    headers: dict | None = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     global _PRECOOLING_DOWN_UNTIL_TS
     global _PRECOOLING_LAST_LOG_TS
@@ -152,8 +156,11 @@ def _safe_post(
     url = _build_url(path, base_url=base_url)
     _LAST_PRECOOLING_ENDPOINT_CONTRACT["base_url"] = str(base_url or "").rstrip("/") if isinstance(base_url, str) else str((ECOAIMS_API_BASE_URL or PRECOOLING_API_BASE_URL).rstrip("/"))
     try:
+        merged_headers = dict(headers or {})
         th = trace_headers()
-        resp = requests.post(url, params=params, json=payload or {}, timeout=timeout_s, **({"headers": th} if th else {}))
+        if th:
+            merged_headers.update(th)
+        resp = requests.post(url, params=params, json=payload or {}, timeout=timeout_s, headers=merged_headers or None)
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, dict):
@@ -194,13 +201,16 @@ def _as_number_list(v: Any) -> list[float]:
     return []
 
 
-def _safe_get_dashboard_state(base_url: str, *, stream_id: str = "default") -> Optional[Dict[str, Any]]:
+def _safe_get_dashboard_state(base_url: str, *, stream_id: str = "default", headers: dict | None = None) -> Optional[Dict[str, Any]]:
     base = str(base_url or "").strip().rstrip("/")
     if not base:
         return None
     try:
+        merged_headers = dict(headers or {})
         th = trace_headers()
-        r = requests.get(f"{base}/dashboard/state", params={"stream_id": stream_id}, timeout=2.5, **({"headers": th} if th else {}))
+        if th:
+            merged_headers.update(th)
+        r = requests.get(f"{base}/dashboard/state", params={"stream_id": stream_id}, timeout=2.5, headers=merged_headers or None)
         r.raise_for_status()
         j = r.json()
         return j if isinstance(j, dict) else None
@@ -309,8 +319,8 @@ def build_simulate_request(payload: Dict[str, Any], *, base_url: str | None = No
     return _normalize_precooling_simulate_request(payload if isinstance(payload, dict) else {}, base_url=base)
 
 
-def get_zones(*, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    data, err = _safe_get("/api/precooling/zones", params=None, base_url=base_url)
+def get_zones(*, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    data, err = _safe_get("/api/precooling/zones", params=None, base_url=base_url, headers=headers)
     if err:
         return {"zones": [{"zone_id": _FALLBACK_ZONE_ID, "name": "Floor 1 / A", "type": "zone"}], "count": 1}, None
     if not data or not data.get("zones"):
@@ -335,60 +345,60 @@ def pretty_zone_label(zone_id: str) -> str:
     return f"Lantai {floor} / Zone {zone.upper()}"
 
 
-def get_status(zone: Optional[str] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_status(zone: Optional[str] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone, "zone": zone} if zone else None
-    data_v2, err_v2 = _safe_get("/api/precooling/status_v2", params=params, base_url=base_url)
+    data_v2, err_v2 = _safe_get("/api/precooling/status_v2", params=params, base_url=base_url, headers=headers)
     if not err_v2 and isinstance(data_v2, dict):
         return _validate_contract("/api/precooling/status_v2", "GET /api/precooling/status_v2", data_v2)
-    data, err = _safe_get("/api/precooling/status", params=params, base_url=base_url)
+    data, err = _safe_get("/api/precooling/status", params=params, base_url=base_url, headers=headers)
     if err:
         return None, err_v2 or err
     return _validate_contract("/api/precooling/status", "GET /api/precooling/status", data)
 
 
-def get_schedule(zone: Optional[str] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_schedule(zone: Optional[str] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone, "zone": zone} if zone else None
-    data, err = _safe_get("/api/precooling/schedule", params=params, base_url=base_url)
+    data, err = _safe_get("/api/precooling/schedule", params=params, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/schedule", "GET /api/precooling/schedule", data)
 
 
-def get_scenarios(zone: Optional[str] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_scenarios(zone: Optional[str] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone, "zone": zone} if zone else None
-    data, err = _safe_get("/api/precooling/scenarios", params=params, base_url=base_url)
+    data, err = _safe_get("/api/precooling/scenarios", params=params, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/scenarios", "GET /api/precooling/scenarios", data)
 
 
-def get_kpi(zone: Optional[str] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_kpi(zone: Optional[str] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone, "zone": zone} if zone else None
-    data, err = _safe_get("/api/precooling/kpi", params=params, base_url=base_url)
+    data, err = _safe_get("/api/precooling/kpi", params=params, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/kpi", "GET /api/precooling/kpi", data)
 
 
-def get_alerts(zone: Optional[str] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_alerts(zone: Optional[str] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone, "zone": zone} if zone else None
-    data, err = _safe_get("/api/precooling/alerts", params=params, base_url=base_url)
+    data, err = _safe_get("/api/precooling/alerts", params=params, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/alerts", "GET /api/precooling/alerts", data)
 
 
-def get_audit(zone: Optional[str] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_audit(zone: Optional[str] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone, "zone": zone} if zone else None
-    data, err = _safe_get("/api/precooling/audit", params=params, base_url=base_url)
+    data, err = _safe_get("/api/precooling/audit", params=params, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/audit", "GET /api/precooling/audit", data)
 
 
-def post_simulate(payload: Dict[str, Any], *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_simulate(payload: Dict[str, Any], *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     req = build_simulate_request(payload if isinstance(payload, dict) else {}, base_url=base_url)
-    data, err = _safe_post("/api/precooling/simulate", payload=req, timeout_s=60.0, base_url=base_url)
+    data, err = _safe_post("/api/precooling/simulate", payload=req, timeout_s=60.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/simulate", "POST /api/precooling/simulate", data)
@@ -399,6 +409,7 @@ def post_precooling_selector_preview(
     *,
     return_candidates: bool = False,
     base_url: str | None = None,
+    headers: dict | None = None,
 ) -> Dict[str, Any]:
     global _PRECOOLING_DOWN_UNTIL_TS
     global _PRECOOLING_LAST_LOG_TS
@@ -411,8 +422,11 @@ def post_precooling_selector_preview(
     url = _build_url("/api/precooling/selector/preview", base_url=base_url)
     _LAST_PRECOOLING_ENDPOINT_CONTRACT["base_url"] = str(base_url or "").rstrip("/") if isinstance(base_url, str) else str((ECOAIMS_API_BASE_URL or PRECOOLING_API_BASE_URL).rstrip("/"))
     try:
+        merged_headers = dict(headers or {})
         th = trace_headers()
-        resp = requests.post(url, json=req, timeout=20.0, **({"headers": th} if th else {}))
+        if th:
+            merged_headers.update(th)
+        resp = requests.post(url, json=req, timeout=20.0, headers=merged_headers or None)
         status = int(getattr(resp, "status_code", 0) or 0)
         if status < 200 or status >= 300:
             body = (getattr(resp, "text", "") or "").strip()
@@ -447,8 +461,9 @@ def post_selector_preview(
     *,
     return_candidates: bool = False,
     base_url: str | None = None,
+    headers: dict | None = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    resp = post_precooling_selector_preview(zone_id, payload, return_candidates=return_candidates, base_url=base_url)
+    resp = post_precooling_selector_preview(zone_id, payload, return_candidates=return_candidates, base_url=base_url, headers=headers)
     if not isinstance(resp, dict):
         return None, "Respons preview selector tidak valid"
     if not resp.get("ok"):
@@ -461,18 +476,18 @@ def post_selector_preview(
     return out, None
 
 
-def post_apply(payload: Dict[str, Any], *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    data, err = _safe_post("/api/precooling/apply", payload=payload, timeout_s=20.0, base_url=base_url)
+def post_apply(payload: Dict[str, Any], *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    data, err = _safe_post("/api/precooling/apply", payload=payload, timeout_s=20.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/apply", "POST /api/precooling/apply", data)
 
 
-def post_force_fallback(payload: Optional[Dict[str, Any]] = None, *, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    data, err = _safe_post("/api/precooling/force_fallback", payload=payload or {}, timeout_s=20.0, base_url=base_url)
+def post_force_fallback(payload: Optional[Dict[str, Any]] = None, *, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    data, err = _safe_post("/api/precooling/force_fallback", payload=payload or {}, timeout_s=20.0, base_url=base_url, headers=headers)
     if err and "belum tersedia (404)" in err:
         compat_payload = {**(payload or {}), "action": "force_fallback"}
-        data2, err2 = _safe_post("/api/precooling/apply", payload=compat_payload, timeout_s=20.0, base_url=base_url)
+        data2, err2 = _safe_post("/api/precooling/apply", payload=compat_payload, timeout_s=20.0, base_url=base_url, headers=headers)
         if err2:
             return {"zones": [{"zone_id": "office_a", "name": "Office A", "type": "office"}], "count": 1}, err2
         return _validate_contract("/api/precooling/apply", "POST /api/precooling/apply", data2)
@@ -481,53 +496,53 @@ def post_force_fallback(payload: Optional[Dict[str, Any]] = None, *, base_url: s
     return _validate_contract("/api/precooling/force_fallback", "POST /api/precooling/force_fallback", data)
 
 
-def get_settings(*, zone_id: str | None = None, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_settings(*, zone_id: str | None = None, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone_id} if isinstance(zone_id, str) and zone_id.strip() else None
-    data, err = _safe_get("/api/precooling/settings", params=params, timeout_s=10.0, base_url=base_url)
+    data, err = _safe_get("/api/precooling/settings", params=params, timeout_s=10.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/settings", "GET /api/precooling/settings", data)
 
 
-def get_settings_default(*, zone_id: str | None = None, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_settings_default(*, zone_id: str | None = None, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone_id} if isinstance(zone_id, str) and zone_id.strip() else None
-    data, err = _safe_get("/api/precooling/settings/default", params=params, timeout_s=10.0, base_url=base_url)
+    data, err = _safe_get("/api/precooling/settings/default", params=params, timeout_s=10.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/settings/default", "GET /api/precooling/settings/default", data)
 
 
-def post_settings_validate(config: Dict[str, Any], *, zone_id: str | None = None, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_settings_validate(config: Dict[str, Any], *, zone_id: str | None = None, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     payload: Dict[str, Any] = {"config": config}
     if isinstance(zone_id, str) and zone_id.strip():
         payload["zone_id"] = zone_id.strip()
-    data, err = _safe_post("/api/precooling/settings/validate", payload=payload, timeout_s=15.0, base_url=base_url)
+    data, err = _safe_post("/api/precooling/settings/validate", payload=payload, timeout_s=15.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/settings/validate", "POST /api/precooling/settings/validate", data)
 
 
-def post_settings_save(config: Dict[str, Any], *, zone_id: str | None = None, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_settings_save(config: Dict[str, Any], *, zone_id: str | None = None, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     payload: Dict[str, Any] = {"config": config}
     if isinstance(zone_id, str) and zone_id.strip():
         payload["zone_id"] = zone_id.strip()
-    data, err = _safe_post("/api/precooling/settings", payload=payload, timeout_s=15.0, base_url=base_url)
+    data, err = _safe_post("/api/precooling/settings", payload=payload, timeout_s=15.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/settings", "POST /api/precooling/settings", data)
 
 
-def post_settings_reset(*, zone_id: str | None = None, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_settings_reset(*, zone_id: str | None = None, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone_id} if isinstance(zone_id, str) and zone_id.strip() else None
-    data, err = _safe_post("/api/precooling/settings/reset", payload={}, params=params, timeout_s=15.0, base_url=base_url)
+    data, err = _safe_post("/api/precooling/settings/reset", payload={}, params=params, timeout_s=15.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/settings/reset", "POST /api/precooling/settings/reset", data)
 
 
-def post_settings_apply(*, zone_id: str | None = None, base_url: str | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def post_settings_apply(*, zone_id: str | None = None, base_url: str | None = None, headers: dict | None = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     params = {"zone_id": zone_id} if isinstance(zone_id, str) and zone_id.strip() else None
-    data, err = _safe_post("/api/precooling/settings/apply", payload={}, params=params, timeout_s=20.0, base_url=base_url)
+    data, err = _safe_post("/api/precooling/settings/apply", payload={}, params=params, timeout_s=20.0, base_url=base_url, headers=headers)
     if err:
         return None, err
     return _validate_contract("/api/precooling/settings/apply", "POST /api/precooling/settings/apply", data)

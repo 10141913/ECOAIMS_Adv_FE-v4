@@ -3,6 +3,7 @@ from dash import Input, Output, State, no_update
 from ecoaims_frontend.services.settings_service import save_settings, load_settings
 from ecoaims_frontend.services.system_runtime_api import get_runtime_config, post_live_energy_file, post_live_energy_enabled
 from ecoaims_frontend.services.base_url_service import effective_base_url
+from ecoaims_frontend.utils import get_headers
 
 def register_settings_callbacks(app):
     """
@@ -22,7 +23,7 @@ def register_settings_callbacks(app):
          State('settings-notifications', 'value'),
          State('settings-live-pusher-interval', 'value')]
     )
-    def save_settings_callback(n_clicks, unit, cap_solar, cap_wind, cap_batt, 
+    def save_settings_callback(n_clicks, unit, cap_solar, cap_wind, cap_batt,
                                cost_tariff, cost_bio, cost_carbon, notifications,
                                live_pusher_interval):
         """
@@ -77,12 +78,14 @@ def register_settings_callbacks(app):
         Output("settings-live-energy-enabled", "disabled"),
         Input("backend-readiness-interval", "n_intervals"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=False,
     )
-    def update_runtime_config_panel(n_intervals, readiness):
+    def update_runtime_config_panel(n_intervals, readiness, token_data):
         r = readiness if isinstance(readiness, dict) else {}
         base_url = effective_base_url(r)
-        data, err = get_runtime_config(base_url=base_url)
+        auth_headers = get_headers(token_data)
+        data, err = get_runtime_config(base_url=base_url, headers=auth_headers)
         summary = ""
         if err:
             msg = err
@@ -136,15 +139,17 @@ def register_settings_callbacks(app):
         Input("settings-live-energy-enabled-apply", "n_clicks"),
         State("settings-live-energy-enabled", "value"),
         State("backend-readiness-store", "data"),
+        State("token-store", "data"),
         prevent_initial_call=True,
     )
-    def apply_live_energy_enabled(n_clicks, value, readiness):
+    def apply_live_energy_enabled(n_clicks, value, readiness, token_data):
         if not n_clicks:
             return "", no_update
         enabled = True if str(value).lower() == "enabled" else False
         r = readiness if isinstance(readiness, dict) else {}
         base_url = effective_base_url(r)
-        data, err = post_live_energy_enabled(enabled, base_url=base_url)
+        auth_headers = get_headers(token_data)
+        data, err = post_live_energy_enabled(enabled, base_url=base_url, headers=auth_headers)
         if err:
             msg = err
             if "status=404" in msg or "Not Found" in msg:
